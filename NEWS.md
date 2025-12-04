@@ -1,5 +1,7 @@
-## MsBackendMongoDb 0.98
+## MsBackendMongoDb 0.97
 
-## Changes in version 0.98.0
+## Changes in version 0.97.0
 
-- Initial package version.
+- Add package related files (DESCRIPTION, NAMESPACE) and render the
+  documentation.
+- Check the unit tests and identify potential problems.

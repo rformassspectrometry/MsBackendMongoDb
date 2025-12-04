@@ -244,7 +244,7 @@ setMethod("dataStorage", "MsBackendMongoDb",
           function(object) {
             if (!is.null(.dbcon(object))) {
               paste(
-                "MongoDb:",
+                "MongoDB:",
                 paste(names(object@.collections), collapse = ", "),
                 collapse = ""
               )
