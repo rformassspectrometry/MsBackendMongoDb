@@ -109,7 +109,8 @@
 #' @import mongolite
 #' @import S4Vectors
 #' @import Spectra
-#'
+#' @import IRanges
+#' 
 #' @author Ahlam Mentag
 #'
 #' @md
@@ -120,27 +121,29 @@
 NULL
 
 setClass(
-  "MsBackendMongoDb",
-  contains = "MsBackendCached",
-  slots = c(
-    dbcon = "ANY",
-    spectraIds = "integer",
-    .collections = "list",
-    peak_fun = "function",
-    localData = "data.frame",
-    nspectra = "integer"
-  ),
-  prototype = prototype(
-    dbcon = NULL,
-    spectraIds = integer(),
-    .collections = list(),
-    peak_fun = .fetch_peaks_data_long_mongo,
-    localData = data.frame(),
-    nspectra = 0L,
-    readonly = TRUE,
-    version = "0.2"
+    "MsBackendMongoDb",
+    contains = "MsBackendCached",
+    slots = c(
+      dbcon = "ANY",
+      spectraIds = "character",    
+      .collections = "list",
+      peak_fun = "function",
+      localData = "data.frame",
+      nspectra = "integer",
+      id_map = "character"        
+    ),
+    prototype = prototype(
+      dbcon = NULL,
+      spectraIds = character(),
+      .collections = list(),
+      peak_fun = NULL,
+      localData = data.frame(),
+      nspectra = 0L,
+      id_map = character(0),
+      readonly = TRUE,
+      version = "0.2"
+    )
   )
-)
 
 
 #' @importFrom methods .valueClassTest is new validObject
@@ -148,17 +151,21 @@ setClass(
 setValidity("MsBackendMongoDb", function(object) {
 
   # Check dbcon
-  res <- .valid_mongocon(object@dbcon)
-  if (!is.null(res)) return(res)
-
-  # Check spectraIds vs nspectra
+  msg <- .valid_mongocon(object@dbcon)
+  if (!is.null(msg)) return(msg)
+  
+  # nspectra matches spectraIds
   if (length(object@spectraIds) != object@nspectra)
     return("Number of spectraIds does not match nspectra")
-
-  # Check localData
+  
+  # localData row check
   if (nrow(object@localData) != 0L && nrow(object@localData) != object@nspectra)
-    return("Number of rows in local data and number of spectra don't match")
-
+    return("Number of rows in localData does not match nspectra")
+  
+  # id_map consistency
+  if (length(object@id_map) != object@nspectra)
+    return("Length of id_map must match nspectra")
+  
   TRUE
 })
 
@@ -169,12 +176,11 @@ setValidity("MsBackendMongoDb", function(object) {
 #' @rdname MsBackendMongoDb
 setMethod("show", "MsBackendMongoDb", function(object) {
   callNextMethod()
-  if (!is.null(.dbcon(object))) {
-    cat(
-      "MongoDb collections: ",
-      paste(names(object@.collections), collapse = ", "),
-      "\n"
-    )
+  if (!is.null(object@dbcon)) {
+    cat("MongoDb collections: ", 
+        paste(names(object@.collections), collapse = ", "), 
+        "\n"
+        )
   }
 })
 
@@ -188,49 +194,46 @@ setMethod(
   function(object, dbcon, data, ...) {
     if (missing(dbcon))
       stop("Parameter 'dbcon' is required for 'MsBackendMongoDb'")
-
+    
     # Insert data if provided
     if (!missing(data)) {
-      .createMsBackendMongoDb(dbcon, x = data)
+      .createMsBackendMongoDb_new(dbcon, x = data)
     }
-
+    
     # Validate MongoDb connection
     msg <- .valid_mongocon(dbcon)
-    if (length(msg)) stop(msg)
-
-    # Store collection names
-    object@.collections <- list(compounds_info_coll = "compounds_info_coll")
-
-    # Fetch spectrum IDs
-    spectrum_ids <- as.integer(
-      dbcon[["compounds_info_coll"]]$find(
-        '{}',
-        fields = '{"spectrum_id": 1}',
-        sort = '{"spectrum_id": 1}'
-      )$spectrum_id
+    if (!is.null(msg)) stop(msg)
+    
+    # Store collections names
+    object@.collections <- dbcon
+    
+    # Fetch spectrum_id_ as character
+    spectrum_ids <- as.character(
+      dbcon[["ms_spectrum_coll"]]$distinct("spectrum_id_")
     )
-
-    # Assign spectrum IDs and nspectra BEFORE callNextMethod
+    
+    # Assign spectrum IDs and nspectra
     object@spectraIds <- spectrum_ids
+    object@id_map <- spectrum_ids
     object@nspectra <- length(spectrum_ids)
     object@dbcon <- dbcon
     object@peak_fun <- .fetch_peaks_data_long_mongo
-
+    
     # Ensure localData has correct number of rows
     object@localData <- data.frame(dummy = rep(NA_integer_, object@nspectra))
-
+    
     # Initialize parent backend cache
     object <- callNextMethod(
       object,
       nspectra = object@nspectra,
       spectraVariables = c(
-        "spectrum_id", "msLevel", "polarity", "compound_id",
+        "spectrum_id_", "msLevel", "polarity",
         "precursor_mz", "instrument", "instrument_type",
         "acquisitionNum", "precScanNum", "collision_energy",
-        "predicted", "splash", "dataOrigin", "original_id"
+        "predicted", "splash", "dataOrigin", "original_id", "peaks"
       )
     )
-
+    
     validObject(object)
     object
   }
@@ -240,44 +243,18 @@ setMethod(
 #' @importMethodsFrom ProtGenerics dataStorage
 #' @importFrom DBI dbGetInfo
 #' @rdname MsBackendMongoDb
-setMethod("dataStorage", "MsBackendMongoDb",
-          function(object) {
-            if (!is.null(.dbcon(object))) {
-              paste(
-                "MongoDB:",
-                paste(names(object@.collections), collapse = ", "),
-                collapse = ""
-              )
-            } else character()
-          })
+setMethod("dataStorage", "MsBackendMongoDb", function(object) {
+              if (object@nspectra == 0L) return(character(0))
+              # Each spectrum comes from the same collection
+              rep("ms_spectrum_coll", object@nspectra)
+            })
+            
 
-#' @exportMethod [
-#' @importFrom MsCoreUtils i2index
-#' @importFrom methods slot<-
-#' @importFrom MsCoreUtils i2index
-#' @importFrom S4Vectors extractROWS
-#' @rdname MsBackendMongoDb
-setMethod("[", "MsBackendMongoDb",
-          function(x, i, j, ..., drop = FALSE) {
-            if (missing(i))
-              return(x)
-            i <- MsCoreUtils::i2index(i, length(x), x@spectraIds)
-            extractByIndex(x, i)
-          })
 
-#' @rdname MsBackendMongoDb
-#' @importMethodsFrom ProtGenerics extractByIndex
-#' @export
-setMethod("extractByIndex", c("MsBackendMongoDb", "ANY"),
-          function(object, i) {
-            slot(object, "spectraIds", check = FALSE) <- object@spectraIds[i]
-            callNextMethod(object, i = i)
-          })
 
 #' @importMethodsFrom ProtGenerics peaksData
 #' @exportMethod peaksData
 #' @rdname MsBackendMongoDb
-# Override peaksData to use peak_fun automatically
 setMethod("peaksData", "MsBackendMongoDb",
           function(object, columns = c("mz", "intensity")) {
             object@peak_fun(object, columns)
@@ -286,40 +263,22 @@ setMethod("peaksData", "MsBackendMongoDb",
 #' @importMethodsFrom ProtGenerics peaksVariables
 #' @exportMethod peaksVariables
 #' @rdname MsBackendMongoDb
-setMethod("peaksVariables", "MsBackendMongoDb",
-          function(object)
-            .available_peaks_variables_mongo(object))
-
-#' @exportMethod intensity
-#' @importMethodsFrom ProtGenerics intensity
-#' @rdname MsBackendMongoDb
-#'
-setMethod("intensity", "MsBackendMongoDb", function(object) {
-  peaks <- .fetch_peaks_data_long_mongo(object, "intensity", drop = TRUE)
-  peaks <- lapply(peaks, function(x) if (is.matrix(x)) as.numeric(x[,1]) else as.numeric(x))
-  S4Vectors::SimpleList(peaks, compress = FALSE)
+setMethod("peaksVariables", "MsBackendMongoDb", function(object) {
+             .available_peaks_variables_mongo(object)
 })
 
-
-#' @exportMethod intensity<-
-#' @importMethodsFrom ProtGenerics intensity<-
-#' @rdname MsBackendMongoDb
-setReplaceMethod("intensity", "MsBackendMongoDb",
-                 function(object, value) {
-                   stop("Can not replace original intensity values in the database.")
-                 })
 
 #' @exportMethod mz
 #' @importMethodsFrom ProtGenerics mz
 #' @rdname MsBackendMongoDb
 #'
 setMethod("mz", "MsBackendMongoDb", function(object) {
-  # Get raw peaks
-  peaks <- .fetch_peaks_data_long_mongo(object, "mz", drop = TRUE)
-  # Ensure every element is numeric
-  peaks <- lapply(peaks, function(x) if (is.matrix(x)) as.numeric(x[,1]) else as.numeric(x))
-  S4Vectors::SimpleList(peaks, compress = FALSE)
-})
+            peaks <- object@peak_fun(object, columns = c("mz", "intensity"))
+            mz_list <- lapply(peaks, function(mat) {
+              if (is.null(mat) || nrow(mat) == 0) numeric(0) else mat[, "mz"]
+            })
+            NumericList(mz_list)
+          })
 
 #' @exportMethod mz<-
 #' @importMethodsFrom ProtGenerics mz<-
@@ -329,44 +288,41 @@ setReplaceMethod("mz", "MsBackendMongoDb",
                    stop("Can not replace original data in the database.")
                  })
 
+
+#' @exportMethod intensity
+#' @importMethodsFrom ProtGenerics intensity
 #' @rdname MsBackendMongoDb
-#' @export
 #'
-#' @importFrom methods callNextMethod
-setReplaceMethod("$", "MsBackendMongoDb",
-                 function(x, name, value) {
-                   if (name %in% c("spectrum_id"))
-                     stop("Spectra IDs can not be changed.", call. = FALSE)
-                   callNextMethod()
+setMethod("intensity", "MsBackendMongoDb", function(object) {
+              peaks <- object@peak_fun(object, columns = c("mz", "intensity"))
+              int_list <- lapply(peaks, function(mat) {
+                if (is.null(mat) || nrow(mat) == 0) numeric(0)
+                else mat[, "intensity"]
+              })
+              NumericList(int_list)
+            })
+
+
+#' @exportMethod intensity<-
+#' @importMethodsFrom ProtGenerics intensity<-
+#' @rdname MsBackendMongoDb
+setReplaceMethod("intensity", "MsBackendMongoDb",
+                 function(object, value) {
+                   stop("Can not replace original intensity 
+                        values in the database.")
                  })
 
-#' @importMethodsFrom ProtGenerics spectraData spectraVariables
-#' @exportMethod spectraData
-#' @rdname MsBackendMongoDb
-setMethod("spectraData", "MsBackendMongoDb",
-          function(object, columns = spectraVariables(object)) {
-            .spectra_data_mongo(object, columns = columns)
-          })
-
-#' @exportMethod reset
-#' @importMethodsFrom Spectra reset
-#' @rdname MsBackendMongoDb
-setMethod("reset", "MsBackendMongoDb",
-          function(object) {
-            message("Restoring original data ...", appendLF = FALSE)
-            if (inherits(object@dbcon, "mongo"))
-              object <- backendInitialize(MsBackendMongoDb(), object@dbcon)
-            message("DONE")
-            object
-          })
 
 #' @exportMethod spectraNames
 #' @importMethodsFrom ProtGenerics spectraNames
-#' @rdname MsBackendMongoDb
-setMethod("spectraNames", "MsBackendMongoDb",
-          function(object) {
-            as.character(object@spectraIds)
-          })
+#' @rdname MsBackendMongoDb 
+setMethod("spectraNames", "MsBackendMongoDb", 
+          function(object) as.character(object@spectraIds))
+setReplaceMethod("spectraNames", "MsBackendMongoDb",
+                 function(object, value) {
+                    stop("Replacing spectraNames is not supported.")
+                  })
+
 
 #' @exportMethod spectraNames<-
 #' @importMethodsFrom ProtGenerics spectraNames<-
@@ -376,3 +332,119 @@ setReplaceMethod("spectraNames", "MsBackendMongoDb",
                    stop("Replacing spectraNames is not supported for ",
                         class(object)[1L])
                  })
+
+#' @importMethodsFrom ProtGenerics spectraData spectraVariables
+#' @exportMethod spectraData
+#' @rdname MsBackendMongoDb
+setMethod("spectraData", "MsBackendMongoDb",
+            function(object, columns = NULL) {
+              
+              # Default columns if none specified
+              if (is.null(columns))
+                columns <- c("spectrum_id_", "msLevel", "precursorMz",
+                             "mz", "intensity")
+              
+              # Fetch scalars + peaks
+              .fetch_spectra_data_mongo(object, columns)
+            }
+          )
+
+
+#' @exportMethod [
+#' @importFrom MsCoreUtils i2index
+#' @importFrom methods slot<-
+#' @importFrom MsCoreUtils i2index
+#' @importFrom S4Vectors extractROWS
+#' @rdname MsBackendMongoDb
+setMethod("[", "MsBackendMongoDb",
+            function(x, i, j, ..., drop = FALSE) {
+              if (missing(i)) return(x)
+              
+              # Convert i to numeric index
+              i <- MsCoreUtils::i2index(i, length(x), x@spectraIds)
+              
+              # Subset backend object
+              extractByIndex(x, i)
+            }
+          )
+
+#' @rdname MsBackendMongoDb
+#' @importMethodsFrom ProtGenerics extractByIndex
+#' @export
+setMethod("extractByIndex", c("MsBackendMongoDb", "ANY"),
+          function(object, i) {
+            # Subset internal IDs
+            object@spectraIds <- object@spectraIds[i]
+            object@id_map     <- object@id_map[i]
+            object@nspectra   <- length(object@spectraIds)
+            
+            if (nrow(object@localData) > 0) {
+              object@localData <- object@localData[i, , drop = FALSE]
+            }
+            
+            object@peak_fun <- function(obj, columns = c("mz", "intensity")) {
+              if (length(obj@spectraIds) == 0) return(list())
+              query <- list(spectrum_id_ = list("$in" = as.list(obj@spectraIds)
+                                                ))
+              res <- obj@.collections$ms_peaks_coll$find(
+                query = jsonlite::toJSON(query, auto_unbox = TRUE)
+              )
+              # Reorder Mongo results to match spectraIds
+              if(!identical(unname(obj@spectraIds), res$spectrum_id_)) {
+                res <- res[fmatch(obj@spectraIds, res$spectrum_id_), 
+                           , drop = FALSE]
+              }
+              
+              # Then map to list
+              peaks_list <- lapply(seq_len(nrow(res)), function(i) {
+                r <- res[i, , drop = FALSE]
+                if(nrow(r) == 0) {
+                  matrix(numeric(0), ncol = 2, 
+                         dimnames = list(NULL, c("mz", "intensity")))
+                } else {
+                  cbind(mz = unlist(r$mz), intensity = unlist(r$intensity))
+                }
+              })
+              names(peaks_list) <- obj@spectraIds
+              
+              peaks_list
+            }
+            
+            validObject(object)
+            object
+          }
+        )
+
+#' @exportMethod reset
+#'
+#' @importMethodsFrom Spectra reset
+#' @rdname MsBackendMongoDb
+setMethod("reset", "MsBackendMongoDb", function(object) {
+  if (!length(object@dbcon) || 
+      !all(sapply(c("ms_spectrum_coll","ms_peaks_coll"), 
+                  function(coll) inherits(object@dbcon[[coll]], "mongo")))) {
+                        stop("Cannot reset: invalid or missing
+                             MongoDB connection.")
+                   }
+  
+  # Re-fetch all spectrum_ids from database
+  spectrum_ids <- as.character(
+                    object@dbcon$ms_spectrum_coll$distinct("spectrum_id_"))
+  
+  object@spectraIds <- spectrum_ids
+  object@id_map     <- spectrum_ids
+  object@nspectra   <- length(spectrum_ids)
+  object@localData  <- data.frame(dummy = rep(NA_integer_, object@nspectra))
+  
+  # Restore peak_fun
+  object@peak_fun <- .fetch_peaks_data_long_mongo
+  
+  validObject(object)
+  object
+})
+
+
+
+
+
+
