@@ -1,283 +1,368 @@
 test_dbcon <- function() {
-    mongo(collection = "compounds_info_coll",
-          db = "test_spectra_db",
-          url = "mongodb://localhost")
+  db_name <- "test_spectra_db"
+  list(
+    ms_spectrum_coll = mongolite::mongo(collection = "ms_spectrum_coll", 
+                                        db = db_name,
+                                        url = "mongodb://localhost"),
+    
+    ms_peaks_coll = mongolite::mongo(collection = "ms_peaks_coll", 
+                                     db = db_name,
+                                     url = "mongodb://localhost")
+  )
 }
 
 clear_db <- function(dbcon) {
-    dbcon$compounds_info_coll$drop()
+  dbcon$ms_spectrum_coll$drop()
+  dbcon$ms_peaks_coll$drop()
 }
 
-## Sample spectra-like data for testing
-sample_df <- data.frame(
-    spectrum_id = 1:2,
-    compound_id = c(101L, 102L),
-    stringsAsFactors = FALSE
-)
-sample_df$peaks <- list(
-    list(mz = c(100, 200), intensity = c(10, 20)),
-    list(mz = c(300), intensity = c(50))
-)
-
-test_that("MsBackendMongoDB constructor works", {
-    dbcon <- list(compounds_info_coll = test_dbcon())
-    clear_db(dbcon)
-
-    backend <- MsBackendMongoDb(dbcon = dbcon)
-    expect_s4_class(backend, "MsBackendMongoDb")
-    expect_equal(backend@nspectra, 0L)
-    expect_equal(length(backend@spectraIds), 0L)
+test_that("MsBackendMongoDb constructor works (empty)", {
+  dbcon <- test_dbcon()
+  clear_db(dbcon)
+  
+  backend <- MsBackendMongoDb(dbcon = NULL)   # empty constructor
+  expect_s4_class(backend, "MsBackendMongoDb")
+  expect_equal(backend@nspectra, 0L)
+  expect_equal(length(backend@spectraIds), 0L)
+  
+  clear_db(dbcon)
 })
 
-test_that("MsBackendMongoDB validity checks work", {
-    ## Create a test MongoDB connection
-    dbcon <- list(compounds_info_coll = test_dbcon())
-    clear_db(dbcon)
-
-    ## Insert a simple document to have something in MongoDB
-    l <- list(
-        spectrum_id = 1L,
-        peaks = list(list(mz = c(100,200), intensity = c(10,20)))
+test_that("backendInitialize() loads spectraIds and sets internal slots", {
+  dbcon <- test_dbcon()
+  clear_db(dbcon)
+  
+  # Insert minimal metadata records
+  dbcon$ms_spectrum_coll$insert(
+    data.frame(
+      spectrum_id_ = c(1L, 2L),
+      msLevel = c(1L, 2L)
     )
+  )
+  
+  backend <- new("MsBackendMongoDb")
+  
+  backend <- backendInitialize(backend, dbcon = dbcon)
+  
+  expect_s4_class(backend, "MsBackendMongoDb")
+  expect_equal(backend@nspectra, 2L)
+  expect_equal(backend@spectraIds, c("1", "2"))
+  expect_equal(backend@id_map, c("1", "2"))
+  expect_true(!is.null(backend@peak_fun))
+  expect_true(is.list(backend@.collections))
+})
 
-    dbcon$compounds_info_coll$insert(l)
 
-    ## Case 1: Valid backend "Q4"
-    be <- MsBackendMongoDb(dbcon = dbcon, spectraIds = 1L)
-    expect_silent(validObject(be))
-
-    ## Case 2: Mismatched nspectra vs spectraIds
-    be_wrong_nspectra <- be
-    be_wrong_nspectra@nspectra <- 2L
-    be_wrong_nspectra@localData <- data.frame()
-    expect_error(
-        validObject(be_wrong_nspectra),
-        "Number of spectraIds does not match nspectra"
+test_that("peaksData() returns list of matrices with correct columns", {
+  dbcon <- test_dbcon()
+  clear_db(dbcon)
+  
+  # Insert metadata as character
+  dbcon$ms_spectrum_coll$insert(
+    data.frame(spectrum_id_ = c("1", "2"), stringsAsFactors = FALSE)
+  )
+  
+  # Insert peaks as character
+  dbcon$ms_peaks_coll$insert(
+    data.frame(
+      spectrum_id_ = c("1", "2"),
+      mz = I(list(c(100, 200), c(150, 250))),
+      intensity = I(list(c(10, 20), c(15, 25))),
+      stringsAsFactors = FALSE
     )
+  )
+  
+  backend <- backendInitialize(new("MsBackendMongoDb"), dbcon = dbcon)
+  backend@spectraIds <- c("1", "2")  # use character, not numeric
+  backend@id_map     <- backend@spectraIds
+  backend@nspectra   <- length(backend@spectraIds)
+  backend@.collections <- list(
+    ms_spectrum_coll = dbcon$ms_spectrum_coll,
+    ms_peaks_coll    = dbcon$ms_peaks_coll
+  )
+  backend@peak_fun <- .fetch_peaks_data_long_mongo
+  
+  peaks <- peaksData(backend)
+  
+  expect_type(peaks, "list")
+  expect_equal(length(peaks), 2)
+  
+  # First spectrum
+  expect_true(is.matrix(peaks[[1]]))
+  expect_equal(colnames(peaks[[1]]), c("mz", "intensity"))
+  expect_equal(peaks[[1]][, "mz"], c(100, 200))
+  expect_equal(peaks[[1]][, "intensity"], c(10, 20))
+  
+  # Second spectrum
+  expect_true(is.matrix(peaks[[2]]))
+  expect_equal(peaks[[2]][, "mz"], c(150, 250))
+  expect_equal(peaks[[2]][, "intensity"], c(15, 25))
+})
 
-    ## Case 3: localData with wrong number of rows
-    be_wrong_local <- be
-    be_wrong_local@localData <- data.frame(dummy = 1:2)  # nspectra = 1
-    expect_error(
-        validObject(be_wrong_local),
-        "Number of rows in local data and number of spectra don't match"
+
+test_that("mz() and intensity() return NumericList objects", {
+  dbcon <- test_dbcon()
+  clear_db(dbcon)
+  
+  # Use character IDs
+  dbcon$ms_spectrum_coll$insert(
+    data.frame(spectrum_id_ = c("1", "2"), stringsAsFactors = FALSE)
+  )
+  
+  dbcon$ms_peaks_coll$insert(
+    data.frame(
+      spectrum_id_ = c("1", "2"),
+      mz = I(list(c(50, 100), c(75, 125))),
+      intensity = I(list(c(5, 10), c(7, 14))),
+      stringsAsFactors = FALSE
     )
+  )
+  
+  backend <- backendInitialize(new("MsBackendMongoDb"), dbcon = dbcon)
+  backend@spectraIds <- c("1", "2")
+  backend@id_map     <- backend@spectraIds
+  backend@nspectra   <- length(backend@spectraIds)
+  backend@.collections <- list(
+    ms_spectrum_coll = dbcon$ms_spectrum_coll,
+    ms_peaks_coll    = dbcon$ms_peaks_coll
+  )
+  backend@peak_fun <- .fetch_peaks_data_long_mongo
+  
+  mz_vals <- mz(backend)
+  int_vals <- intensity(backend)
+  
+  expect_s4_class(mz_vals, "NumericList")
+  expect_s4_class(int_vals, "NumericList")
+  
+  expect_equal(as.numeric(mz_vals[[1]]), c(50, 100))
+  expect_equal(as.numeric(mz_vals[[2]]), c(75, 125))
+  
+  expect_equal(as.numeric(int_vals[[1]]), c(5, 10))
+  expect_equal(as.numeric(int_vals[[2]]), c(7, 14))
+})
 
-    ## Case 4: Invalid dbcon (NULL)
-    be_invalid_db <- be
-    be_invalid_db@dbcon <- NULL
-    expect_error(
-        validObject(be_invalid_db),
-        "'dbcon' is NULL or empty"
+
+test_that("subsetting extracts the correct spectra", {
+  dbcon <- test_dbcon()
+  clear_db(dbcon)
+  
+  dbcon$ms_spectrum_coll$insert(
+    data.frame(spectrum_id_ = c("10", "20", "30"), stringsAsFactors = FALSE)
+  )
+  
+  backend <- backendInitialize(new("MsBackendMongoDb"), dbcon = dbcon)
+  backend@spectraIds <- c("10", "20", "30")
+  backend@id_map     <- backend@spectraIds
+  backend@nspectra   <- length(backend@spectraIds)
+  
+  # subset second element
+  backend2 <- backend[2]
+  
+  expect_equal(backend2@spectraIds, "20")
+  expect_equal(backend2@id_map, "20")
+  expect_equal(length(backend2), 1L)
+})
+
+
+test_that("spectraData() returns merged scalar and peaks data", {
+  dbcon <- test_dbcon()
+  clear_db(dbcon)
+  
+  # Metadata (character ID)
+  dbcon$ms_spectrum_coll$insert(
+    data.frame(
+      spectrum_id_ = "1",
+      msLevel = 2L,
+      precursorMz = 123.45,
+      stringsAsFactors = FALSE
     )
-
-    ## Case 5: Invalid dbcon (not mongo object)
-    be_invalid_db2 <- be
-    be_invalid_db2@dbcon <- list(not_a_mongo = 1)
-    expect_error(
-        validObject(be_invalid_db2),
-        "'dbcon' should be a mongolite::mongo object or a list of mongo objects"
+  )
+  
+  # Peaks
+  dbcon$ms_peaks_coll$insert(
+    data.frame(
+      spectrum_id_ = "1",
+      mz = I(list(c(100, 200))),
+      intensity = I(list(c(10, 20))),
+      stringsAsFactors = FALSE
     )
-
-    clear_db(dbcon)
+  )
+  
+  backend <- backendInitialize(new("MsBackendMongoDb"), dbcon = dbcon)
+  backend@spectraIds <- "1"
+  backend@id_map     <- backend@spectraIds
+  backend@nspectra   <- length(backend@spectraIds)
+  backend@.collections <- list(
+    ms_spectrum_coll = dbcon$ms_spectrum_coll,
+    ms_peaks_coll    = dbcon$ms_peaks_coll
+  )
+  backend@peak_fun <- .fetch_peaks_data_long_mongo
+  
+  d <- spectraData(backend)
+  
+  expect_true("spectrum_id_" %in% colnames(d))
+  expect_true("msLevel" %in% colnames(d))
+  expect_true("precursorMz" %in% colnames(d))
+  expect_true("mz" %in% colnames(d))
+  expect_true("intensity" %in% colnames(d))
+  
+  expect_equal(d$mz[[1]], c(100, 200))
+  expect_equal(d$intensity[[1]], c(10, 20))
 })
 
-test_that("backendInitialize works and stores spectraIds", {
-    dbcon <- list(compounds_info_coll = test_dbcon())
-    clear_db(dbcon)
 
-    ## Insert test data
-    MsBackendMongoDb:::.insert_backend_mongo(dbcon, sample_df)
 
-    ## Pass dbcon at initialization
-    backend <- MsBackendMongoDb(dbcon = dbcon)
-    ## backend <- MsBackendMongoDb() # Q5: that should work!
-    backend <- backendInitialize(backend, dbcon = dbcon)
-
-    expect_s4_class(backend, "MsBackendMongoDb")
-    expect_equal(backend@nspectra, 2L)
-    expect_equal(backend@spectraIds, 1:2)
-    expect_true("compounds_info_coll" %in% names(backend@.collections))
+test_that("subsetting with numeric, logical, and character indices works with peaksData and spectraData", {
+  dbcon <- test_dbcon()
+  clear_db(dbcon)
+  
+  # Insert spectra metadata
+  dbcon$ms_spectrum_coll$insert(
+    data.frame(
+      spectrum_id_ = c("spec1", "spec2", "spec3"),
+      precursorMz  = c(150, 160, 170),
+      msLevel      = c(2, 2, 2),
+      stringsAsFactors = FALSE
+    )
+  )
+  
+  # Insert peaks
+  dbcon$ms_peaks_coll$insert(
+    data.frame(
+      spectrum_id_ = c("spec1", "spec2", "spec3"),
+      mz          = I(list(c(100, 200), c(150, 250), c(175, 275))),
+      intensity   = I(list(c(10, 20), c(15, 25), c(17, 27))),
+      stringsAsFactors = FALSE
+    )
+  )
+  
+  be <- backendInitialize(new("MsBackendMongoDb"), dbcon = dbcon)
+  
+  # Numeric subsetting
+  be_num <- be[1:2]
+  expect_equal(be_num@spectraIds, c("spec1", "spec2"))
+  expect_equal(be_num@nspectra, 2)
+  
+  peaks_num <- peaksData(be_num)
+  expect_length(peaks_num, 2)
+  expect_equal(peaks_num[[1]][, "mz"], c(100, 200))
+  expect_equal(peaks_num[[2]][, "mz"], c(150, 250))
+  
+  spdata_num <- spectraData(be_num, columns = c("spectrum_id_", "precursorMz", "mz", "intensity"))
+  expect_equal(nrow(spdata_num), 2)
+  expect_equal(spdata_num$spectrum_id_, c("spec1", "spec2"))
+  
+  # Logical subsetting
+  be_log <- be[c(TRUE, FALSE, TRUE)]
+  expect_equal(be_log@spectraIds, c("spec1", "spec3"))
+  
+  peaks_log <- peaksData(be_log)
+  expect_equal(peaks_log[[1]][, "mz"], c(100, 200))
+  expect_equal(peaks_log[[2]][, "mz"], c(175, 275))
+  
+  spdata_log <- spectraData(be_log, columns = c("spectrum_id_", "precursorMz", "mz", "intensity"))
+  expect_equal(spdata_log$spectrum_id_, c("spec1", "spec3"))
+  
+  # Character subsetting
+  be_char <- be[c("spec2")]
+  expect_equal(be_char@spectraIds, "spec2")
+  
+  peaks_char <- peaksData(be_char)
+  expect_equal(peaks_char[[1]][, "mz"], c(150, 250))
+  expect_equal(peaks_char[[1]][, "intensity"], c(15, 25))
+  
+  spdata_char <- spectraData(be_char, columns = c("spectrum_id_", "precursorMz", "mz", "intensity"))
+  expect_equal(nrow(spdata_char), 1)
+  expect_equal(spdata_char$spectrum_id_, "spec2")
+  expect_s4_class(spdata_char$mz, "NumericList")
+  expect_equal(as.numeric(spdata_char$mz[[1]]), c(150, 250))
+  expect_equal(as.numeric(spdata_char$intensity[[1]]), c(15, 25))
+  
+  clear_db(dbcon)
 })
 
-test_that("peaksData returns standardized peaks", {
-    dbcon <- list(compounds_info_coll = test_dbcon())
-    clear_db(dbcon)
-
-    MsBackendMongoDb:::.insert_backend_mongo(dbcon, sample_df)
-
-    backend <- MsBackendMongoDb(dbcon = dbcon)
-    backend <- backendInitialize(backend, dbcon = dbcon)
-    peaks <- peaksData(backend)
-
-    expect_length(peaks, 2)
-
-    ## Spectrum 1
-    expect_true(is.matrix(peaks[[1]]))
-    expect_equal(colnames(peaks[[1]]), c("mz", "intensity"))
-    expect_type(peaks[[1]][, "mz"], "double")
-    expect_type(peaks[[1]][, "intensity"], "double")
-
-    ## Spectrum 2
-    expect_true(is.matrix(peaks[[2]]))
-    expect_equal(colnames(peaks[[2]]), c("mz", "intensity"))
-    expect_type(peaks[[2]][, "mz"], "double")
-    expect_type(peaks[[2]][, "intensity"], "double")
-
-    ## Empty backend
-    clear_db(dbcon)
-    backend <- MsBackendMongoDb(dbcon = dbcon)
-    backend <- backendInitialize(backend, dbcon = dbcon)
-    expect_equal(length(backend), 0)
-    peaks <- peaksData(backend)
-    expect_equal(peaks, list())
+test_that("dataStorage returns correct character vector with two collections", {
+  dbcon <- test_dbcon()
+  clear_db(dbcon)
+  
+  be <- MsBackendMongoDb()
+  be <- backendInitialize(be, dbcon = dbcon)
+  
+  # Empty backend
+  expect_equal(dataStorage(be), character(0))
+  
+  # Insert spectra and peaks
+  dbcon$ms_spectrum_coll$insert(
+    data.frame(
+      spectrum_id_ = c("spec1", "spec2", "spec3"),
+      precursorMz  = c(150, 160, 170),
+      msLevel      = c(2, 2, 2),
+      stringsAsFactors = FALSE
+    )
+  )
+  
+  dbcon$ms_peaks_coll$insert(
+    data.frame(
+      spectrum_id_ = c("spec1", "spec2", "spec3"),
+      mz          = I(list(c(100, 200), c(150, 250), c(175, 275))),
+      intensity   = I(list(c(10, 20), c(15, 25), c(17, 27))),
+      stringsAsFactors = FALSE
+    )
+  )
+  
+  be <- backendInitialize(be, dbcon = dbcon)
+  storage <- dataStorage(be)
+  expect_type(storage, "character")
+  expect_length(storage, 3)
+  expect_true(all(storage == "ms_spectrum_coll"))
+  
+  clear_db(dbcon)
 })
 
-test_that("intensity<-, MsBackendMongoDB works", {
-    backend <- MsBackendMongoDb(dbcon = list(compounds_info_coll =test_dbcon()))
-    backend <- backendInitialize(backend, dbcon = backend@dbcon)
 
-    expect_error(intensity(backend) <- 1:5, "replace")
+test_that("reset restores the backend with two collections", {
+  dbcon <- test_dbcon()
+  clear_db(dbcon)
+  
+  # Insert spectra and peaks
+  dbcon$ms_spectrum_coll$insert(
+    data.frame(
+      spectrum_id_ = c("spec1", "spec2", "spec3"),
+      precursorMz  = c(150, 160, 170),
+      msLevel      = c(2, 2, 2),
+      stringsAsFactors = FALSE
+    )
+  )
+  
+  dbcon$ms_peaks_coll$insert(
+    data.frame(
+      spectrum_id_ = c("spec1", "spec2", "spec3"),
+      mz          = I(list(c(100, 200), c(150, 250), c(175, 275))),
+      intensity   = I(list(c(10, 20), c(15, 25), c(17, 27))),
+      stringsAsFactors = FALSE
+    )
+  )
+  
+  be <- MsBackendMongoDb()
+  be <- backendInitialize(be, dbcon = dbcon)
+  
+  expect_equal(be@nspectra, 3L)
+  
+  # Subset backend
+  be_sub <- be[1:2]
+  expect_equal(be_sub@nspectra, 2L)
+  
+  # Reset
+  be_reset <- reset(be_sub)
+  expect_equal(be_reset@nspectra, 3L)
+  expect_equal(be_reset@spectraIds, c("spec1", "spec2", "spec3"))
+  expect_equal(be_reset@id_map, c("spec1", "spec2", "spec3"))
+  
+  # peaksData should return correct peaks after reset
+  peaks <- peaksData(be_reset)
+  expect_equal(peaks[[3]][, "mz"], c(175, 275))
+  expect_equal(peaks[[3]][, "intensity"], c(17, 27))
+  
+  clear_db(dbcon)
 })
 
-test_that("mz<-, MsBackendMongoDB works", {
-    backend <- MsBackendMongoDb(dbcon = list(compounds_info_coll =test_dbcon()))
-    backend <- backendInitialize(backend, dbcon = backend@dbcon)
-
-    expect_error(mz(backend) <- 1:5, "replace")
-})
-
-test_that("spectraData returns requested columns", {
-    dbcon <- list(compounds_info_coll = test_dbcon())
-    clear_db(dbcon)
-    MsBackendMongoDb:::.insert_backend_mongo(dbcon, sample_df)
-
-    backend <- MsBackendMongoDb(dbcon = dbcon)
-    backend <- backendInitialize(backend, dbcon = dbcon)
-
-    spdata <- spectraData(backend, columns = c("compound_id", "spectrum_id"))
-    expect_true(all(c("compound_id", "spectrum_id") %in% colnames(spdata)))
-    expect_equal(spdata$compound_id, sample_df$compound_id)
-    expect_equal(spdata$spectrum_id, sample_df$spectrum_id)
-
-    ## Columns not present in input
-    spdata <- spectraData(backend, columns = c("compound_id", "rtime"))
-    expect_equal(colnames(spdata), c("compound_id", "rtime"))
-    expect_true(is.numeric(spdata$rtime))
-    expect_equal(spdata$rtime, c(NA_real_, NA_real_))
-
-    ## Arbitrary column order
-    spdata <- spectraData(backend, columns = c("rtime", "compound_id"))
-    expect_equal(colnames(spdata), c("rtime", "compound_id"))
-
-    ## Full data
-    spdata <- spectraData(backend)
-    ## Q6 Need to have m/z and intensity values returned in columns "mz" and
-    ## "intensity".
-    expect_equal(spdata$mz, IRanges::NumericList(c(100, 200), c(300),
-                                                 compress = FALSE))
-
-    ## Not existing column
-    expect_error(
-        spectraData(backend, columns = c("rtime", "compound_id", "not")),
-        "not available")
-
-    ## Empty backend
-    clear_db(dbcon)
-    backend <- MsBackendMongoDb(dbcon = dbcon)
-    backend <- backendInitialize(backend, dbcon = dbcon)
-    expect_equal(length(backend), 0)
-
-    spdata <- spectraData(backend, c("compound_id", "spectrum_id"))
-    expect_s4_class(spdata, "DataFrame")
-    expect_equal(colnames(spdata), c("compound_id", "spectrum_id"))
-})
-
-test_that("subsetting and extractByIndex works", {
-    dbcon <- list(compounds_info_coll = test_dbcon())
-    clear_db(dbcon)
-    MsBackendMongoDb:::.insert_backend_mongo(dbcon, sample_df)
-
-    backend <- MsBackendMongoDb(dbcon = dbcon)
-    backend <- backendInitialize(backend, dbcon = dbcon)
-
-    sub_backend <- backend[1]
-    expect_s4_class(sub_backend, "MsBackendMongoDb")
-    ## Q7 subset with [ should also subset the data.
-    expect_equal(sub_backend@spectraIds, 1L)
-    expect_equal(sub_backend$spectrum_id, 1L)
-
-    ## Arbitrary order
-    be2 <- backend[c(2, 1)]
-    expect_equal(be2@spectraIds, c(2, 1))
-    expect_equal(be2$spectrum_id, c(2, 1))
-})
-
-test_that("spectraNames returns spectrum IDs", {
-    dbcon <- list(compounds_info_coll = test_dbcon())
-    clear_db(dbcon)
-    MsBackendMongoDb:::.insert_backend_mongo(dbcon, sample_df)
-
-    backend <- MsBackendMongoDb(dbcon = dbcon)
-    backend <- backendInitialize(backend, dbcon = dbcon)
-
-    names <- spectraNames(backend)
-    expect_equal(names, as.character(1:2))
-
-    be2 <- backend[2:1]
-    expect_equal(spectraNames(be2), c("2", "1"))
-})
-
-test_that("dataStorage returns a description of the backend", {
-    ## Create a test MongoDB connection
-    dbcon <- list(compounds_info_coll = test_dbcon())
-    clear_db(dbcon)
-    MsBackendMongoDb:::.insert_backend_mongo(dbcon, sample_df)
-
-    ## Initialize the backend
-    backend <- MsBackendMongoDb(dbcon = dbcon)
-    backend <- backendInitialize(backend, dbcon = dbcon)
-
-    ## Check that dataStorage returns a character string
-    ## Q8 : dataStorage must return a character vector with the same length
-    ##     than `backend`
-    storage_desc <- dataStorage(backend)
-    expect_equal(length(storage_desc), length(backend))
-    expect_type(storage_desc, "character")
-    expect_true(grepl("MongoDB", storage_desc[1L]))
-    expect_true(grepl("compounds_info_coll", storage_desc[1L]))
-
-    backend_no_db <- backend
-    backend_no_db@dbcon <- NULL
-    expect_equal(dataStorage(backend_no_db), character())
-
-    ## Empty database
-    dbcon <- list(compounds_info_coll = test_dbcon())
-    clear_db(dbcon)
-    backend <- MsBackendMongoDb(dbcon = dbcon)
-    backend <- backendInitialize(backend, dbcon = dbcon)
-    storage_desc <- dataStorage(backend)
-    expect_equal(length(storage_desc), length(backend))
-})
-
-test_that("reset restores backend", {
-    dbcon <- list(compounds_info_coll = test_dbcon())
-    clear_db(dbcon)
-    MsBackendMongoDb:::.insert_backend_mongo(dbcon, sample_df)
-
-    backend <- MsBackendMongoDb(dbcon = dbcon)
-    backend <- backendInitialize(backend, dbcon = dbcon)
-    backend_reset <- reset(backend)
-
-    expect_s4_class(backend_reset, "MsBackendMongoDb")
-    expect_equal(backend_reset@spectraIds, 1:2)
-
-    be2 <- backend[2]
-    expect_equal(be2@spectraIds, 2L)
-    be2 <- reset(be2)
-    ## Q9: the data should be restored to its original state.
-    expect_equal(be2@spectraIds, 1:2)
-    expect_equal(be2$spectrum_id, 1:2)
-})
-
-clear_db(list(compounds_info_coll = test_dbcon()))
