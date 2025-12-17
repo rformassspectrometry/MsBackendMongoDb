@@ -1,6 +1,6 @@
 Package: MsBackendMongoDb
 Title: NoSQL-based Mass Spectrometry Data Backend
-Version: 0.97.0
+Version: 0.97.1
 Authors@R:
     c(person(given = "Ahlam", family = "Mentag",
              email = "ahlammentag8@gmail.com",
@@ -24,6 +24,8 @@ Imports:
     S4Vectors,
     MsCoreUtils,
     ProtGenerics,
+    IRanges,
+    fastmatch,
     methods,
     DBI
 Suggests:

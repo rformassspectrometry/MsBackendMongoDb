@@ -5,10 +5,32 @@ library(mongolite)
 library(Spectra)
 library(msdata)
 
-## Can only run tests if a mongodb server is running on the system.
+#' [TODO] we can run the unit tests only if a mongodb server is running on the
+#' system. We should check how to best tackle that. Maybe looking at the unit
+#' tests of the mongolite package?
 
 test_check("MsBackendMongoDb")
 
+#' 2025-12-16
+#'
+#' 1) [OK]: new format to store metadata and peaks data separately
+#'
+#' 2) [Q?]: what is @id_map slot? is this redundant with @spectraIds
+#'
+#' 3) [TODO@jo]: create a class union of NULL and mongo/list instead of @dbcon
+#'    being ANY
+#'
+#' 4) [Q?]: are peaks stored as:
+#'    list(
+#'         list(mz = numeric(), intensity = numeric()),
+#'         list(mz = numeric(), intensity = numeric())
+#'    )
+#'
+#' 5) [TODO@jo]: fix `backendInitialize()`: fixed spectra variables, create
+#'    @localData .
+#'
+#' TODO: figure out why backendInitialize with data does not work - returns an
+#' empty backend. Check first how the unit test with `backendInitialize()` works
 
 #' Questions - look for Q<index> for reference/mention in the code.
 #'

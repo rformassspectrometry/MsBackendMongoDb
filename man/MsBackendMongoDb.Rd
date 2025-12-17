@@ -19,7 +19,6 @@
 \alias{extractByIndex,MsBackendMongoDb-method}
 \alias{show,MsBackendMongoDb-method}
 \alias{extractByIndex,MsBackendMongoDb,ANY-method}
-\alias{$<-,MsBackendMongoDb-method}
 \title{\code{Spectra} MS backend storing data in a MongoDb database}
 \usage{
 \S4method{show}{MsBackendMongoDb}(object)
@@ -28,51 +27,52 @@
 
 \S4method{dataStorage}{MsBackendMongoDb}(object)
 
-\S4method{[}{MsBackendMongoDb}(x, i, j, ..., drop = FALSE)
-
-\S4method{extractByIndex}{MsBackendMongoDb,ANY}(object, i)
-
 \S4method{peaksData}{MsBackendMongoDb}(object, columns = c("mz", "intensity"))
 
 \S4method{peaksVariables}{MsBackendMongoDb}(object)
-
-\S4method{intensity}{MsBackendMongoDb}(object)
-
-\S4method{intensity}{MsBackendMongoDb}(object) <- value
 
 \S4method{mz}{MsBackendMongoDb}(object)
 
 \S4method{mz}{MsBackendMongoDb}(object) <- value
 
-\S4method{$}{MsBackendMongoDb}(x, name) <- value
+\S4method{intensity}{MsBackendMongoDb}(object)
 
-\S4method{spectraData}{MsBackendMongoDb}(object, columns = spectraVariables(object))
-
-\S4method{reset}{MsBackendMongoDb}(object)
+\S4method{intensity}{MsBackendMongoDb}(object) <- value
 
 \S4method{spectraNames}{MsBackendMongoDb}(object)
 
 \S4method{spectraNames}{MsBackendMongoDb}(object) <- value
+
+\S4method{spectraData}{MsBackendMongoDb}(object, columns = NULL)
+
+\S4method{[}{MsBackendMongoDb}(x, i, j, ..., drop = FALSE)
+
+\S4method{extractByIndex}{MsBackendMongoDb,ANY}(object, i)
+
+\S4method{reset}{MsBackendMongoDb}(object)
 }
 \arguments{
 \item{object}{A \code{MsBackendMongoDb} instance}
 
-\item{dbcon}{\code{List()} of MongoDb collections, e.g., \code{ list(compounds_info_coll = mongo_conn)}}
+\item{dbcon}{\code{list()} of MongoDb collections, e.g.,
+\code{list(compounds_info_coll = mongo_conn)}}
 
 \item{data}{Optional \code{DataFrame} with data to insert into MongoDb}
 
 \item{...}{Additional arguments passed internally}
-
-\item{i}{Indices to subset the backend}
-
-\item{drop}{\code{Logical()}, ignored for subsetting}
 
 \item{columns}{\code{Character()} vector of columns to fetch for \code{peaksData} or
 \code{spectraData}}
 
 \item{value}{Replacement values for setter functions}
 
-\item{name}{Name of the spectra variable to modify}
+\item{x}{for \verb{[i]}: a \code{MsBackendMongoDb} instance}
+
+\item{i}{\code{integer()} Indices to subset the backend}
+
+\item{j}{\code{integer()} Ignored.}
+
+\item{drop}{\code{logical(1)}, ignored for subsetting}
 }
 \value{
 Depends on the method. See individual function documentation.
@@ -104,7 +104,8 @@ New backend objects can be created using:
 backend <- backendInitialize(backend, dbcon = backend@dbcon)
 }\if{html}{\out{</div>}}
 \itemize{
-\item \code{dbcon}: A list of MongoDb collections (e.g. from \code{mongolite::mongo()}).
+\item \code{dbcon}: A list of MongoDb collections (e.g. from \code{mongolite::mongo()}) as
+created by the \code{\link[=connectMsBackendMongoDb]{connectMsBackendMongoDb()}}.
 \item \code{backendInitialize()}: populates the object with spectrum IDs and caches
 metadata. If \code{data} is provided, it can insert data into the collection.
 }
