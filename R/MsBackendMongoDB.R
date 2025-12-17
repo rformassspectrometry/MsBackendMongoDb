@@ -228,7 +228,20 @@ setMethod(
     object@localData <- data.frame(dummy = rep(NA_integer_, object@nspectra))
 
     # Get available metadata column names from the ms_spectrum_coll
-    svars <- ""
+    meta_doc <- dbcon[["ms_spectrum_coll"]]$find(limit = 1)
+    
+    if (nrow(meta_doc)) {
+      svars <- setdiff(
+        colnames(meta_doc),
+        c("_id", "mz", "intensity")  # peaks are stored in the peaks collection
+      )
+    } else {
+      svars <- character()
+    }
+    
+    if (!"spectrum_id_" %in% svars)
+      svars <- c("spectrum_id_", svars)
+    
 
     # Initialize parent backend cache
     object <- callNextMethod(
