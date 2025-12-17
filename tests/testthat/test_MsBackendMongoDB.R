@@ -365,3 +365,26 @@ test_that("reset restores the backend with two collections", {
 
   clear_db(dbcon)
 })
+
+test_that("backendInitialize with data provided works", {
+    df <- data.frame(msLevel = 1L, rtime = c(12.3, 23.4, 321.1),
+                     centroided = TRUE)
+    df$mz <- list(c(12.2, 14.4, 134.1),
+                  c(131.1, 432.1),
+                  c(46.2, 122.1, 143.4, 155.1))
+    df$intensity <- list(c(12, 14, 155),
+                         c(124.3, 151),
+                         c(43, 155.1, 532, 12))
+    dbcon <- test_dbcon()
+    clear_db(dbcon)
+
+    be <- backendInitialize(MsBackendMongoDb(), dbcon = dbcon, data = df)
+    expect_equal(length(be), nrow(df))
+    expect_equal(df$rtime, rtime(be))
+    expect_equal(df$msLevel, msLevel(be))
+    expect_equal(df$centroided, centroided(be))
+    expect_equal(df$mz, unname(as.list(mz(be))))
+    expect_equal(df$intensity, unname(as.list(intensity(be))))
+
+    clear_db(dbcon)
+})

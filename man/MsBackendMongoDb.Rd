@@ -104,7 +104,8 @@ New backend objects can be created using:
 backend <- backendInitialize(backend, dbcon = backend@dbcon)
 }\if{html}{\out{</div>}}
 \itemize{
-\item \code{dbcon}: A list of MongoDb collections (e.g. from \code{mongolite::mongo()}).
+\item \code{dbcon}: A list of MongoDb collections (e.g. from \code{mongolite::mongo()}) as
+created by the \code{\link[=connectMsBackendMongoDb]{connectMsBackendMongoDb()}}.
 \item \code{backendInitialize()}: populates the object with spectrum IDs and caches
 metadata. If \code{data} is provided, it can insert data into the collection.
 }

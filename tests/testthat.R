@@ -17,11 +17,20 @@ test_check("MsBackendMongoDb")
 #'
 #' 2) [Q?]: what is @id_map slot? is this redundant with @spectraIds
 #'
-#' 3) [TODO]: create a class union of NULL and mongo/list instead of @dbcon
+#' 3) [TODO@jo]: create a class union of NULL and mongo/list instead of @dbcon
 #'    being ANY
-
-
-
+#'
+#' 4) [Q?]: are peaks stored as:
+#'    list(
+#'         list(mz = numeric(), intensity = numeric()),
+#'         list(mz = numeric(), intensity = numeric())
+#'    )
+#'
+#' 5) [TODO@jo]: fix `backendInitialize()`: fixed spectra variables, create
+#'    @localData .
+#'
+#' TODO: figure out why backendInitialize with data does not work - returns an
+#' empty backend. Check first how the unit test with `backendInitialize()` works
 
 #' Questions - look for Q<index> for reference/mention in the code.
 #'

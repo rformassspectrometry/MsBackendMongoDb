@@ -41,11 +41,12 @@ MsBackendMongoDb <- function(dbcon = NULL, collections = list()) {
 #'
 #' @description
 #'
-#' Creates connections to required MongoDb collections used by the backend.
+#' Creates connections to required MongoDb collections used by the
+#' [MsBackendMongoDb].
 #'
-#' @param db `character()` scalar, name of the MongoDb database.
+#' @param db `character(1)` scalar, name of the MongoDb database.
 #'
-#' @param url `character()` a MongoDb server URL.
+#' @param url `character(1)` a MongoDb server URL.
 #'
 #' @return A named `list()` of `mongo` connection objects.
 #'
@@ -53,14 +54,15 @@ MsBackendMongoDb <- function(dbcon = NULL, collections = list()) {
 #'
 #' @importFrom mongolite mongo
 #'
-#' @noRd
-.connect_mongodb <- function(db = "spectra_db", url = "mongodb://localhost") {
-     list(
-         ms_spectrum_coll = mongolite::mongo(collection = "ms_spectrum_coll",
-                                              db = db, url = url),
-         ms_peaks_coll = mongolite::mongo(collection = "ms_peaks_coll",
-                                           db = db, url = url)
-     )
+#' @export
+connectMsBackendMongoDb <- function(db = "spectra_db",
+                                    url = "mongodb://localhost") {
+    list(
+        ms_spectrum_coll = mongo(collection = "ms_spectrum_coll",
+                                 db = db, url = url),
+        ms_peaks_coll = mongo(collection = "ms_peaks_coll",
+                              db = db, url = url)
+    )
 }
 
 #' @title Validate a MongoDb Connection Object
@@ -341,8 +343,8 @@ MsBackendMongoDb <- function(dbcon = NULL, collections = list()) {
 #'
 #' @noRd
 .insert_new_backend_mongo <- function(dbcon, df) {
-  if (!is.data.frame(df))
-    stop("df must be a data.frame")
+  if (!(is.data.frame(df) | inherits(df, "DataFrame")))
+    stop("df must be a 'data.frame' or a 'DataFrame'")
 
   if (!"spectrum_id_" %in% names(df))
     stop("df must contain a 'spectrum_id_' column")
@@ -405,23 +407,15 @@ MsBackendMongoDb <- function(dbcon = NULL, collections = list()) {
 
   # Convert Spectra to data.frame if needed
   if (inherits(x, "Spectra")) {
-    df <- spectraData(x)
-    df$peaks <- lapply(seq_len(length(x)), function(i) {
-      list(
-        mz = as.numeric(mz(x)[[i]]),
-        intensity = as.numeric(intensity(x)[[i]])
-      )
-    })
-    x <- df
+    x <- spectraData(x, columns = union(spectraVariables(x), peaksVariables(x)))
   }
 
-  if (!is.data.frame(x))
+  if (!(is.data.frame(x) | inherits(x, "DataFrame")))
     stop("Input x must be a data.frame or Spectra object.")
 
-  if (!"peaks" %in% names(x))
-    stop("Data.frame must contain a 'peaks' column.")
+  x <- .reformat_mz_intensity(x)
 
-  # Normalize peaks
+  # Normalize peaks ... MAYBE NOT NEEDED?
   x$peaks <- lapply(x$peaks, function(p) {
     list(
       mz = as.numeric(p$mz),
@@ -439,7 +433,32 @@ MsBackendMongoDb <- function(dbcon = NULL, collections = list()) {
 
   x$spectrum_id_ <- paste0("spec", seq_len(n_new) + n_existing)
 
+  if (!is.data.frame(x)) x <- as.data.frame(x)
   .insert_new_backend_mongo(dbcon, x)
+}
+
+#' Small helper function to reformat eventually present "mz" and "intensity"
+#' columns in the format stored into the MongoDB.
+#'
+#' @author Johannes Rainer
+#'
+#' @noRd
+.reformat_mz_intensity <- function(x) {
+    if (any(have <- c("mz", "intensity") %in% colnames(x))) {
+        if (!all(have)) stop("Both \"ms\" and \"intensity\" columns ",
+                             "need to be provided")
+        x$peaks <- mapply(x$mz, x$intensity,
+                          FUN = function(a, b) list(mz = a, intensity = b),
+                          SIMPLIFY = FALSE, USE.NAMES = FALSE)
+        x$mz <- NULL
+        x$intensity <- NULL
+    } else {
+        if (!any(colnames(x) == "peaks")) {
+            ep <- list(mz = numeric(), intensity = numeric())
+            x$peaks <- lapply(seq_len(nrow(x)), function(z) ep)
+        }
+    }
+    x
 }
 
 #' @title Combine Multiple MsBackendMongoDb Backend Objects

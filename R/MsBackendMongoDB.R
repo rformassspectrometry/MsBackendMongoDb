@@ -45,7 +45,9 @@
 #' backend <- backendInitialize(backend, dbcon = backend@dbcon)
 #' ```
 #'
-#' - `dbcon`: A list of MongoDb collections (e.g. from `mongolite::mongo()`).
+#' - `dbcon`: A list of MongoDb collections (e.g. from `mongolite::mongo()`) as
+#'   created by the [connectMsBackendMongoDb()].
+#'
 #' - `backendInitialize()`: populates the object with spectrum IDs and caches
 #'   metadata. If `data` is provided, it can insert data into the collection.
 #'
@@ -225,16 +227,14 @@ setMethod(
     # Ensure localData has correct number of rows
     object@localData <- data.frame(dummy = rep(NA_integer_, object@nspectra))
 
+    # Get available metadata column names from the ms_spectrum_coll
+    svars <- ""
+
     # Initialize parent backend cache
     object <- callNextMethod(
       object,
       nspectra = object@nspectra,
-      spectraVariables = c(
-        "spectrum_id_", "msLevel", "polarity",
-        "precursor_mz", "instrument", "instrument_type",
-        "acquisitionNum", "precScanNum", "collision_energy",
-        "predicted", "splash", "dataOrigin", "original_id", "peaks"
-      )
+      spectraVariables = union(svars, c("mz", "intensity"))
     )
 
     validObject(object)
@@ -332,13 +332,7 @@ setReplaceMethod("spectraNames", "MsBackendMongoDb",
 #' @exportMethod spectraData
 #' @rdname MsBackendMongoDb
 setMethod("spectraData", "MsBackendMongoDb",
-            function(object, columns = NULL) {
-
-              # Default columns if none specified
-              if (is.null(columns))
-                columns <- c("spectrum_id_", "msLevel", "precursorMz",
-                             "mz", "intensity")
-
+            function(object, columns = spectraVariables(object)) {
               # Fetch scalars + peaks
               .fetch_spectra_data_mongo(object, columns)
             }

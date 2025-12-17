@@ -13,8 +13,9 @@ clear_db <- function(dbcon) {
   dbcon$ms_peaks_coll$drop()
 }
 
-test_that(".connect_mongodb returns valid mongo connection list", {
-  conns <- .connect_mongodb(db = paste0("test_db_", as.integer(Sys.time())))
+test_that("connectMsBackendMongoDb returns valid mongo connection list", {
+    conns <- connectMsBackendMongoDb(db = paste0("test_db_",
+                                                 as.integer(Sys.time())))
   expect_true(is.list(conns))
   expect_true(inherits(conns$ms_spectrum_coll, "mongo"))
   expect_true(inherits(conns$ms_peaks_coll, "mongo"))
@@ -32,7 +33,7 @@ test_that(".valid_mongocon validates connections correctly", {
   res <- .valid_mongocon(list(other_coll = con_wrong))
   expect_match(res, "Missing required collection: ms_spectrum_coll, ms_peaks_")
 
-  con_required <- .connect_mongodb(db = temp_db)
+  con_required <- connectMsBackendMongoDb(db = temp_db)
   expect_null(.valid_mongocon(con_required))
 
   con_wrong$drop()
@@ -289,9 +290,6 @@ test_that("spectrum_id_ auto increments as spec'nb' strings", {
 })
 
 
-library(testthat)
-library(mongolite)
-
 test_that("combine multiple MsBackendMongoDb backends", {
 
   dbcon <- list(
@@ -346,4 +344,29 @@ test_that("combine multiple MsBackendMongoDb backends", {
   # Clean up
   dbcon$ms_spectrum_coll$drop()
   dbcon$ms_peaks_coll$drop()
+})
+
+test_that(".reformat_mz_intensity works", {
+    a <- data.frame(msLevel = 1L, rtime = c(12.3, 23.2, 13.4))
+    res <- .reformat_mz_intensity(a)
+    expect_true(is.data.frame(a))
+    expect_equal(a$msLevel, res$msLevel)
+    expect_equal(a$rtime, res$rtime)
+    expect_true(any(colnames(res) == "peaks"))
+    expect_equal(res$peaks, list(list(mz = numeric(), intensity = numeric()),
+                                 list(mz = numeric(), intensity = numeric()),
+                                 list(mz = numeric(), intensity = numeric())))
+    a$mz <- list(c(1.2, 2.5, 12.1), c(123.4, 12.4), c(133.1, 343, 2455))
+    expect_error(.reformat_mz_intensity(a), "columns need to be provided")
+    a$intensity <- list(c(123, 4, 12), c(213, 432), c(234, 123, 543))
+    res <- .reformat_mz_intensity(a)
+    expect_equal(a$msLevel, res$msLevel)
+    expect_equal(a$rtime, res$rtime)
+    expect_true(any(colnames(res) == "peaks"))
+    expect_equal(res$peaks[[1L]]$mz, a$mz[[1L]])
+    expect_equal(res$peaks[[2L]]$mz, a$mz[[2L]])
+    expect_equal(res$peaks[[3L]]$mz, a$mz[[3L]])
+    expect_equal(res$peaks[[1L]]$intensity, a$intensity[[1L]])
+    expect_equal(res$peaks[[2L]]$intensity, a$intensity[[2L]])
+    expect_equal(res$peaks[[3L]]$intensity, a$intensity[[3L]])
 })

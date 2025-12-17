@@ -4,6 +4,8 @@
 
 - Refactor mongodb collection: store spectra metadata and peaks data into two
   separate collections.
+- Export `connectMsBackendMongoDb()` function.
+- Refactor input parameter reformatting for data creation/insertion in MongoDB.
 
 ## Changes in version 0.97.0
 
