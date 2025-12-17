@@ -16,6 +16,7 @@ test_check("MsBackendMongoDb")
 #' 1) [OK]: new format to store metadata and peaks data separately
 #'
 #' 2) [Q?]: what is @id_map slot? is this redundant with @spectraIds
+#'    [answe]: yes I wanted to keep it for safety.
 #'
 #' 3) [TODO@jo]: create a class union of NULL and mongo/list instead of @dbcon
 #'    being ANY
@@ -25,6 +26,9 @@ test_check("MsBackendMongoDb")
 #'         list(mz = numeric(), intensity = numeric()),
 #'         list(mz = numeric(), intensity = numeric())
 #'    )
+#'    
+#'    [Answer]: the peaks are stored as list of matrices:
+#'
 #'
 #' 5) [TODO@jo]: fix `backendInitialize()`: fixed spectra variables, create
 #'    @localData .
