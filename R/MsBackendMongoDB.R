@@ -220,16 +220,12 @@ setMethod(
     # Assign spectrum IDs and nspectra
     object@spectraIds <- spectrum_ids
     object@id_map <- spectrum_ids
-    object@nspectra <- length(spectrum_ids)
     object@dbcon <- dbcon
     object@peak_fun <- .fetch_peaks_data_long_mongo
 
-    # Ensure localData has correct number of rows
-    object@localData <- data.frame(dummy = rep(NA_integer_, object@nspectra))
-
     # Get available metadata column names from the ms_spectrum_coll
     meta_doc <- dbcon[["ms_spectrum_coll"]]$find(limit = 1)
-    
+
     if (nrow(meta_doc)) {
       svars <- setdiff(
         colnames(meta_doc),
@@ -238,15 +234,14 @@ setMethod(
     } else {
       svars <- character()
     }
-    
+
     if (!"spectrum_id_" %in% svars)
       svars <- c("spectrum_id_", svars)
-    
 
     # Initialize parent backend cache
     object <- callNextMethod(
       object,
-      nspectra = object@nspectra,
+      nspectra = length(spectrum_ids),
       spectraVariables = union(svars, c("mz", "intensity"))
     )
 
@@ -277,7 +272,9 @@ setMethod("peaksData", "MsBackendMongoDb",
 #' @exportMethod peaksVariables
 #' @rdname MsBackendMongoDb
 setMethod("peaksVariables", "MsBackendMongoDb", function(object) {
-             .available_peaks_variables_mongo(object)
+    if (!is.null(object@dbcon))
+        .available_peaks_variables_mongo(object)
+    else character()
 })
 
 #' @exportMethod mz

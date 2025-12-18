@@ -43,7 +43,7 @@
 
 \S4method{spectraNames}{MsBackendMongoDb}(object) <- value
 
-\S4method{spectraData}{MsBackendMongoDb}(object, columns = NULL)
+\S4method{spectraData}{MsBackendMongoDb}(object, columns = spectraVariables(object))
 
 \S4method{[}{MsBackendMongoDb}(x, i, j, ..., drop = FALSE)
 

@@ -35,7 +35,7 @@ test_that("backendInitialize() loads spectraIds and sets internal slots", {
   # Insert minimal metadata records
   dbcon$ms_spectrum_coll$insert(
     data.frame(
-      spectrum_id_ = c(1L, 2L),
+      spectrum_id_ = c("1", "2"),
       msLevel = c(1L, 2L)
     )
   )
@@ -50,8 +50,12 @@ test_that("backendInitialize() loads spectraIds and sets internal slots", {
   expect_equal(backend@id_map, c("1", "2"))
   expect_true(!is.null(backend@peak_fun))
   expect_true(is.list(backend@.collections))
+  expect_equal(length(backend), 2)
+  expect_equal(backend@spectraVariables,
+               c("spectrum_id_", "msLevel", "mz", "intensity"))
+  expect_equal(rtime(backend), c(NA_real_, NA_real_))
+  expect_equal(msLevel(backend), c(1L, 2L))
 })
-
 
 test_that("peaksData() returns list of matrices with correct columns", {
   dbcon <- test_dbcon()
@@ -73,15 +77,7 @@ test_that("peaksData() returns list of matrices with correct columns", {
   )
 
   backend <- backendInitialize(new("MsBackendMongoDb"), dbcon = dbcon)
-  backend@spectraIds <- c("1", "2")  # use character, not numeric
-  backend@id_map     <- backend@spectraIds
-  backend@nspectra   <- length(backend@spectraIds)
-  backend@.collections <- list(
-    ms_spectrum_coll = dbcon$ms_spectrum_coll,
-    ms_peaks_coll    = dbcon$ms_peaks_coll
-  )
-  backend@peak_fun <- .fetch_peaks_data_long_mongo
-
+  expect_equal(backend@spectraIds, c("1", "2"))
   peaks <- peaksData(backend)
 
   expect_type(peaks, "list")
@@ -97,8 +93,52 @@ test_that("peaksData() returns list of matrices with correct columns", {
   expect_true(is.matrix(peaks[[2]]))
   expect_equal(peaks[[2]][, "mz"], c(150, 250))
   expect_equal(peaks[[2]][, "intensity"], c(15, 25))
+
+  ## Empty peaks data
+  clear_db(dbcon)
+  dbcon$ms_spectrum_coll$insert(
+    data.frame(spectrum_id_ = c("1", "2"), stringsAsFactors = FALSE)
+  )
+  be <- backendInitialize(MsBackendMongoDb(), dbcon = dbcon)
+  res <- peaksData(be)
+  expect_length(res, 2)
+  expect_type(res, "list")
+  expect_equal(names(res), be@spectraIds)
+  expect_true(is.matrix(res[[1L]]))
+  expect_equal(colnames(res[[1L]]), c("mz", "intensity"))
+  expect_equal(nrow(res[[1L]]), 0L)
+  expect_true(is.matrix(res[[2L]]))
+  expect_equal(colnames(res[[2L]]), c("mz", "intensity"))
+  expect_equal(nrow(res[[2L]]), 0L)
+  clear_db(dbcon)
 })
 
+test_that("peaksVariables works", {
+  dbcon <- test_dbcon()
+  clear_db(dbcon)
+
+  be <- MsBackendMongoDb()
+  expect_equal(peaksVariables(be), character())
+
+  dbcon$ms_spectrum_coll$insert(
+    data.frame(spectrum_id_ = c("1", "2"), stringsAsFactors = FALSE)
+  )
+
+  dbcon$ms_peaks_coll$insert(
+    data.frame(
+      spectrum_id_ = c("1", "2"),
+      mz = I(list(c(50, 100), c(75, 125))),
+      intensity = I(list(c(5, 10), c(7, 14))),
+      stringsAsFactors = FALSE
+    )
+    )
+
+  be <- backendInitialize(be, dbcon = dbcon)
+  res <- peaksVariables(be)
+  expect_equal(res, c("mz", "intensity"))
+
+  clear_db(dbcon)
+})
 
 test_that("mz() and intensity() return NumericList objects", {
   dbcon <- test_dbcon()
@@ -118,15 +158,15 @@ test_that("mz() and intensity() return NumericList objects", {
     )
   )
 
+  be <- MsBackendMongoDb()
+  res <- mz(be)
+  expect_s4_class(res, "NumericList")
+  expect_length(res, 0)
+  res <- intensity(be)
+  expect_s4_class(res, "NumericList")
+  expect_length(res, 0)
+
   backend <- backendInitialize(new("MsBackendMongoDb"), dbcon = dbcon)
-  backend@spectraIds <- c("1", "2")
-  backend@id_map     <- backend@spectraIds
-  backend@nspectra   <- length(backend@spectraIds)
-  backend@.collections <- list(
-    ms_spectrum_coll = dbcon$ms_spectrum_coll,
-    ms_peaks_coll    = dbcon$ms_peaks_coll
-  )
-  backend@peak_fun <- .fetch_peaks_data_long_mongo
 
   mz_vals <- mz(backend)
   int_vals <- intensity(backend)
@@ -139,8 +179,132 @@ test_that("mz() and intensity() return NumericList objects", {
 
   expect_equal(as.numeric(int_vals[[1]]), c(5, 10))
   expect_equal(as.numeric(int_vals[[2]]), c(7, 14))
+  clear_db(dbcon)
 })
 
+test_that("mz<- throws an error", {
+  be <- MsBackendMongoDb()
+  expect_error(mz(be) <- 3, "Can not replace")
+})
+
+test_that("intensity<- throws an error", {
+  be <- MsBackendMongoDb()
+  expect_error(intensity(be) <- 3, "Can not replace")
+})
+
+test_that("spectraNames works", {
+  dbcon <- test_dbcon()
+  clear_db(dbcon)
+
+  dbcon$ms_spectrum_coll$insert(
+    data.frame(spectrum_id_ = c("10", "20", "30"), stringsAsFactors = FALSE)
+  )
+
+  be <- backendInitialize(MsBackendMongoDb(), dbcon = dbcon)
+  res <- spectraNames(be)
+
+  expect_equal(res, c("10", "20", "30"))
+  expect_equal(res, be@spectraIds)
+
+  clear_db(dbcon)
+})
+
+test_that("spectraNames<- throws an error", {
+  dbcon <- test_dbcon()
+  clear_db(dbcon)
+
+  dbcon$ms_spectrum_coll$insert(
+    data.frame(spectrum_id_ = c("10", "20", "30"), stringsAsFactors = FALSE)
+  )
+
+  be <- backendInitialize(MsBackendMongoDb(), dbcon = dbcon)
+  expect_error(spectraNames(be) <- c(1, 34, 2), "Replacing")
+
+  clear_db(dbcon)
+})
+
+test_that("spectraData() returns merged scalar and peaks data", {
+  dbcon <- test_dbcon()
+  clear_db(dbcon)
+
+  dbcon$ms_spectrum_coll$insert(
+    data.frame(spectrum_id_ = c("1", "2"),
+               precursorMz = c(123.23, 1322.4),
+               msLevel = c(1L, 1L),
+               other_col = c("a", "b")
+    ))
+
+  dbcon$ms_peaks_coll$insert(
+    data.frame(
+      spectrum_id_ = c("1", "2"),
+      mz = I(list(c(50, 100), c(75, 125))),
+      intensity = I(list(c(5, 10), c(7, 14))),
+      stringsAsFactors = FALSE
+    )
+  )
+
+  be <- backendInitialize(MsBackendMongoDb(), dbcon = dbcon)
+
+  d <- spectraData(be)
+  expect_true(all(c("spectrum_id_", "precursorMz", "msLevel", "other_col",
+                    "mz", "intensity") %in% colnames(d)))
+  expect_true(all(names(coreSpectraVariables()) %in% colnames(d)))
+  expect_equal(d$msLevel, c(1L, 1L))
+  expect_equal(d$precursorMz, c(123.23, 1322.4))
+  expect_equal(d$other_col, c("a", "b"))
+  expect_equal(d$mz[[1L]], c(50, 100))
+  expect_equal(d$mz[[2L]], c(75, 125))
+  expect_equal(d$intensity[[1L]], c(5, 10))
+  expect_equal(d$intensity[[2L]], c(7, 14))
+
+  # spectraData with selected columns
+  d <- spectraData(be, c("other_col", "mz", "msLevel"))
+  expect_s4_class(d, "DataFrame")
+  expect_equal(colnames(d), c("other_col", "mz", "msLevel"))
+  expect_equal(d$other_col, c("a", "b"))
+  expect_equal(d$msLevel, c(1L, 1L))
+  expect_equal(d$mz[[1L]], c(50, 100))
+  expect_equal(d$mz[[2L]], c(75, 125))
+
+  ## spectraData with only peaks variables
+  d <- spectraData(be, c("intensity"))
+  expect_s4_class(d, "DataFrame")
+  expect_equal(colnames(d), c("intensity"))
+  expect_equal(d$intensity[[1L]], c(5, 10))
+  expect_equal(d$intensity[[2L]], c(7, 14))
+
+  ## spectraData with only spectra variables
+  d <- spectraData(be, c("msLevel", "rtime"))
+  expect_s4_class(d, "DataFrame")
+  expect_equal(colnames(d), c("msLevel", "rtime"))
+  expect_equal(d$msLevel, c(1L, 1L))
+  expect_equal(d$rtime, c(NA_real_, NA_real_))
+
+  ## cache: only non-present variables
+  d <- spectraData(be, c("rtime", "polarity"))
+  expect_s4_class(d, "DataFrame")
+  expect_equal(colnames(d), c("rtime", "polarity"))
+  expect_identical(d$rtime, c(NA_real_, NA_real_))
+  expect_identical(d$polarity, c(NA_integer_, NA_integer_))
+
+  ## cache: cache rtime
+  be$rtime <- c(123.4, 1234.5)
+  d <- spectraData(be, c("rtime", "polarity"))
+  expect_s4_class(d, "DataFrame")
+  expect_equal(colnames(d), c("rtime", "polarity"))
+  expect_identical(d$rtime, c(123.4, 1234.5))
+  expect_identical(d$polarity, c(NA_integer_, NA_integer_))
+
+  ## cache: overwriting existing variable
+  be$msLevel <- 2L
+  d <- spectraData(be, c("rtime", "msLevel"))
+  expect_s4_class(d, "DataFrame")
+  expect_equal(colnames(d), c("rtime", "msLevel"))
+  expect_identical(d$rtime, c(123.4, 1234.5))
+  expect_identical(d$msLevel, c(2L, 2L))
+
+  clear_db(dbcon)
+})
 
 test_that("subsetting extracts the correct spectra", {
   dbcon <- test_dbcon()
@@ -162,55 +326,6 @@ test_that("subsetting extracts the correct spectra", {
   expect_equal(backend2@id_map, "20")
   expect_equal(length(backend2), 1L)
 })
-
-
-test_that("spectraData() returns merged scalar and peaks data", {
-  dbcon <- test_dbcon()
-  clear_db(dbcon)
-
-  # Metadata (character ID)
-  dbcon$ms_spectrum_coll$insert(
-    data.frame(
-      spectrum_id_ = "1",
-      msLevel = 2L,
-      precursorMz = 123.45,
-      stringsAsFactors = FALSE
-    )
-  )
-
-  # Peaks
-  dbcon$ms_peaks_coll$insert(
-    data.frame(
-      spectrum_id_ = "1",
-      mz = I(list(c(100, 200))),
-      intensity = I(list(c(10, 20))),
-      stringsAsFactors = FALSE
-    )
-  )
-
-  backend <- backendInitialize(new("MsBackendMongoDb"), dbcon = dbcon)
-  backend@spectraIds <- "1"
-  backend@id_map     <- backend@spectraIds
-  backend@nspectra   <- length(backend@spectraIds)
-  backend@.collections <- list(
-    ms_spectrum_coll = dbcon$ms_spectrum_coll,
-    ms_peaks_coll    = dbcon$ms_peaks_coll
-  )
-  backend@peak_fun <- .fetch_peaks_data_long_mongo
-
-  d <- spectraData(backend)
-
-  expect_true("spectrum_id_" %in% colnames(d))
-  expect_true("msLevel" %in% colnames(d))
-  expect_true("precursorMz" %in% colnames(d))
-  expect_true("mz" %in% colnames(d))
-  expect_true("intensity" %in% colnames(d))
-
-  expect_equal(d$mz[[1]], c(100, 200))
-  expect_equal(d$intensity[[1]], c(10, 20))
-})
-
-
 
 test_that("subsetting with numeric, logical, and character indices works with peaksData and spectraData", {
   dbcon <- test_dbcon()
@@ -380,6 +495,14 @@ test_that("backendInitialize with data provided works", {
 
     be <- backendInitialize(MsBackendMongoDb(), dbcon = dbcon, data = df)
     expect_equal(length(be), nrow(df))
+    expect_true(all(be@spectraVariables %in%
+                    c("spectrum_id_", "msLevel", "rtime", "centroided",
+                      "mz", "intensity")))
+    sd <- spectraData(be)
+    expect_equal(sd$rtime, df$rtime)
+    expect_equal(sd$msLevel, df$msLevel)
+    expect_equal(sd$centroided, df$centroided)
+
     expect_equal(df$rtime, rtime(be))
     expect_equal(df$msLevel, msLevel(be))
     expect_equal(df$centroided, centroided(be))

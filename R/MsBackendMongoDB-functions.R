@@ -195,54 +195,60 @@ connectMsBackendMongoDb <- function(db = "spectra_db",
 #'
 #' @importFrom S4Vectors DataFrame
 #'
+#' @importFrom S4Vectors make_zero_col_DFrame
+#'
 #' @importFrom IRanges NumericList
+#'
+#' @importFrom jsonlite toJSON
+#'
+#' @importFrom methods getMethod
 #'
 #' @noRd
 .fetch_spectra_data_mongo <- function(x, columns = spectraVariables(x)) {
-  peak_cols <- intersect(columns, c("mz","intensity"))
-  scalar_cols <- setdiff(columns, peak_cols)
+  ## Get cached spectra data
+  res <- getMethod("spectraData", "MsBackendCached")(x, columns = columns)
+  if (is.null(res))
+      res <- make_zero_col_DFrame(length(x))
 
-  #fetch scalar metadata
-  projection_fields <- unique(c("spectrum_id_", scalar_cols))
-  projection <- paste0("{", paste(sprintf('"%s":1', projection_fields),
-                                  collapse = ","), ",\"_id\":0}")
+  peak_cols <- intersect(columns, peaksVariables(x))
+  scalar_cols <- setdiff(columns, c(peak_cols, "mz", "intensity"))
+  scalar_cols <- setdiff(scalar_cols, colnames(res)) # only get what's missing
 
-  # Filter by spectraIds
-  query <- list(spectrum_id_ = list("$in" = as.list(x@spectraIds)))
-  docs <- x@dbcon$ms_spectrum_coll$find(
-    query = jsonlite::toJSON(query, auto_unbox = TRUE),
-    fields = projection
-  )
+  if (length(scalar_cols)) {
+    #fetch scalar metadata
+    projection_fields <- unique(c("spectrum_id_", scalar_cols))
+    projection <- paste0("{", paste(sprintf('"%s":1', projection_fields),
+                                    collapse = ","), ",\"_id\":0}")
 
-  # Normalize missing scalar columns
-  for (col in projection_fields) {
-    if (!col %in% names(docs)) docs[[col]] <- NA
+    # Filter by spectraIds
+    query <- list(spectrum_id_ = list("$in" = as.list(x@spectraIds)))
+    docs <- x@dbcon$ms_spectrum_coll$find(
+      query = toJSON(query, auto_unbox = TRUE),
+      fields = projection
+    )
+
+    # Reorder rows to match backend
+    docs <- docs[match(x@spectraIds, docs$spectrum_id_), , drop = FALSE]
+
+    res <- cbind(res, docs)
   }
-
-  # Preserve requested column order
-  docs <- docs[, intersect(columns, names(docs)), drop = FALSE]
-
-  # Reorder rows to match backend
-  docs <- docs[match(x@spectraIds, docs$spectrum_id_), , drop = FALSE]
-
   # fetch peaks if requested
-  if (length(peak_cols) > 0 && !is.null(x@peak_fun)) {
+  if (length(peak_cols) && !is.null(x@peak_fun)) {
     peaks_list <- x@peak_fun(x, columns = peak_cols)
     if ("mz" %in% peak_cols) {
-      docs$mz <- NumericList(lapply(peaks_list, function(p) {
+      res$mz <- NumericList(lapply(peaks_list, function(p) {
         if (is.null(p) || nrow(p) == 0) numeric(0) else p[, "mz"]
       }), compress = FALSE)
     }
     if ("intensity" %in% peak_cols) {
-      docs$intensity <- NumericList(lapply(peaks_list, function(p) {
+      res$intensity <- NumericList(lapply(peaks_list, function(p) {
         if (is.null(p) || nrow(p) == 0) numeric(0) else p[, "intensity"]
       }), compress = FALSE)
     }
   }
 
   # Return DataFrame with requested columns
-  docs <- docs[, columns, drop = FALSE]
-  DataFrame(docs)
+  DataFrame(res[, columns, drop = FALSE])
 }
 
 #' @title Fetch Peak Data From MongoDb for a Backend

@@ -1,5 +1,11 @@
 ## MsBackendMongoDb 0.97
 
+## Changes in version 0.97.2
+
+- Initialize `MsBackendMongoDb` with spectra variables retrieved from the
+  database.
+- Refactor `spectraData()` to support caching variables.
+
 ## Changes in version 0.97.1
 
 - Refactor mongodb collection: store spectra metadata and peaks data into two
