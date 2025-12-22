@@ -38,8 +38,6 @@ env:
   has_testthat: 'true'
   run_covr: 'true'
   run_pkgdown: 'true'
-  has_RUnit: 'false'
-  has_BiocCheck: 'false'
   cache-version: 'cache-v4'
 
 jobs:
@@ -64,8 +62,35 @@ jobs:
 
     steps:
 
-      - name: Start mongo
-        run: docker run --rm -d -p 27017:27017 --name mongo mongo:8.2 --bind_ip_all
+
+      - name: install mongo
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get -y install gnupg curl
+          curl -fsSL https://www.mongodb.org/static/pgp/server-7.0.asc | sudo gpg -o /usr/share/keyrings/mongodb-server-7.0.gpg --dearmor
+          echo "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg ] https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/7.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-7.0.list
+          sudo apt-get update
+          sudo apt-get install -y mongodb-org
+
+      # - name: Install mongosh
+      #   run: |
+      #     sudo apt-get update
+      #     sudo apt-get install -y wget gnupg
+      #     wget -qO- https://www.mongodb.org/static/pgp/server-8.0.asc | sudo tee /etc/apt/trusted.gpg.d/server-8.0.asc
+      #     echo "deb [ arch=amd64,arm64 ] https://repo.mongodb.org/apt/ubuntu focal/mongodb-org/8.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-8.0.list
+      #     sudo apt-get update
+      #     sudo apt-get install -y mongodb-mongosh
+      #     mongosh --version
+
+      # - name: Initalize MongoDB
+      #   run: |
+      #     mongosh --host localhost:27017 -u mongoadmin -p secret --authenticationDatabase admin <<EOF
+      #       db = db.getSiblingDB('test_spectra_db');
+      #       db.createUser({ user: 'appuser', pwd: 'apppass', roles: [{ role: 'readWrite', db: 'test_spectra_db' }] })
+      #       db.createCollection('ms_spectrum_coll');
+      #       db.createCollection('ms_peaks_coll');
+      #     EOF
 
       ## Set the R library to the directory matching the
       ## R packages cache step further below when running on Docker (Linux).
@@ -129,18 +154,6 @@ jobs:
           sysreqs=$(Rscript -e 'cat("apt-get update -y && apt-get install -y", paste(gsub("apt-get install -y ", "", remotes::system_requirements("ubuntu", "20.04")), collapse = " "))')
           echo $sysreqs
           sudo -s eval "$sysreqs"
-
-      - name: Install macOS system dependencies
-        if: matrix.config.os == 'macOS-latest'
-        run: |
-          brew install netcdf
-        shell: bash {0}
-
-      - name: Install Windows system dependencies
-        if: runner.os == 'Windows'
-        run: |
-          ## Edit below if you have any Windows system dependencies
-        shell: Rscript {0}
 
       - name: Install BiocManager
         run: |
@@ -217,35 +230,16 @@ jobs:
         env:
           _R_CHECK_CRAN_INCOMING_: false
         run: |
-          rcmdcheck::rcmdcheck(
-              args = c("--no-build-vignettes", "--no-manual", "--timings"),
-              build_args = c("--no-manual", "--no-resave-data"),
-              error_on = "warning",
-              check_dir = "check"
-          )
-        shell: Rscript {0}
+          mkdir /tmp/mongo
+          mongod --fork --dbpath /tmp/mongo --logpath /tmp/mongo.log
+          Rscript -e "rcmdcheck::rcmdcheck(args = c('--no-build-vignettes','--no-manual', '--timings'), build_args = c('--no-manual','--no-resave-data'), error_on = 'warning', check_dir = 'check')"
+          mongod --dbpath /tmp/mongo --shutdown
+        shell: shell {0}
 
       ## Might need an to add this to the if:  && runner.os == 'Linux'
       - name: Reveal testthat details
         if:  env.has_testthat == 'true'
         run: find . -name testthat.Rout -exec cat '{}' ';'
-
-      - name: Run RUnit tests
-        if:  env.has_RUnit == 'true'
-        run: |
-          BiocGenerics:::testPackage()
-        shell: Rscript {0}
-
-      - name: Run BiocCheck
-        if:  env.has_BiocCheck == 'true'
-        run: |
-          BiocCheck::BiocCheck(
-              dir('check', 'tar.gz$', full.names = TRUE),
-              `quit-with-status` = TRUE,
-              `no-check-R-ver` = TRUE,
-              `no-check-bioc-help` = TRUE
-          )
-        shell: Rscript {0}
 
       - name: Test coverage
         if: github.ref == 'refs/heads/main' && env.run_covr == 'true' && runner.os == 'Linux'
