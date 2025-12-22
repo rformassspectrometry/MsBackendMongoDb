@@ -315,9 +315,6 @@ test_that("subsetting extracts the correct spectra", {
   )
 
   backend <- backendInitialize(new("MsBackendMongoDb"), dbcon = dbcon)
-  backend@spectraIds <- c("10", "20", "30")
-  backend@id_map     <- backend@spectraIds
-  backend@nspectra   <- length(backend@spectraIds)
 
   # subset second element
   backend2 <- backend[2]
@@ -325,9 +322,56 @@ test_that("subsetting extracts the correct spectra", {
   expect_equal(backend2@spectraIds, "20")
   expect_equal(backend2@id_map, "20")
   expect_equal(length(backend2), 1L)
+  clear_db(dbcon)
 })
 
-test_that("subsetting with numeric, logical, and character indices works with peaksData and spectraData", {
+test_that("extractByIndex works", {
+  dbcon <- test_dbcon()
+  clear_db(dbcon)
+
+  # Insert metadata as character
+  dbcon$ms_spectrum_coll$insert(
+    data.frame(spectrum_id_ = c("1", "2", "3"), msLevel = 2L, rtime =c(1.1,2,3))
+  )
+  # Insert peaks as character
+  dbcon$ms_peaks_coll$insert(
+    data.frame(
+      spectrum_id_ = c("1", "2", "3"),
+      mz = I(list(c(100, 200, 201.3), c(150, 250), c(12.1, 14, 15.4, 19))),
+      intensity = I(list(c(10, 20, 39), c(15, 25), c(120, 140, 150, 190)))
+    )
+  )
+
+  be <- backendInitialize(MsBackendMongoDb(), dbcon = dbcon)
+  expect_equal(be@spectraIds, c("1", "2", "3"))
+
+  be_sub <- be[2]
+  expect_equal(be_sub@spectraIds, "2")
+  expect_equal(rtime(be_sub), rtime(be)[2L])
+  expect_equal(mz(be_sub), mz(be)[2L])
+  expect_equal(intensity(be_sub), intensity(be)[2L])
+  expect_equal(peaksData(be_sub), peaksData(be)[2L])
+
+  ## arbitrary order
+  be_sub <- be[c(3, 1)]
+  expect_equal(be_sub@spectraIds, c("3", "1"))
+  expect_equal(rtime(be_sub), rtime(be)[c(3, 1)])
+  expect_equal(mz(be_sub), mz(be)[c(3, 1)])
+  expect_equal(intensity(be_sub), intensity(be)[c(3, 1)])
+  expect_equal(peaksData(be_sub), peaksData(be)[c(3, 1)])
+
+  ## duplicated values
+  be_sub <- be[c(3, 1, 3)]
+  expect_equal(be_sub@spectraIds, c("3", "1", "3"))
+  expect_equal(rtime(be_sub), rtime(be)[c(3, 1, 3)])
+  expect_equal(mz(be_sub), mz(be)[c(3, 1, 3)])
+  expect_equal(intensity(be_sub), intensity(be)[c(3, 1, 3)])
+  expect_equal(peaksData(be_sub), peaksData(be)[c(3, 1, 3)])
+
+  clear_db(dbcon)
+})
+
+test_that("subsetting with numeric, logical, and character indices works", {
   dbcon <- test_dbcon()
   clear_db(dbcon)
 
@@ -335,9 +379,9 @@ test_that("subsetting with numeric, logical, and character indices works with pe
   dbcon$ms_spectrum_coll$insert(
     data.frame(
       spectrum_id_ = c("spec1", "spec2", "spec3"),
-      precursorMz  = c(150, 160, 170),
-      msLevel      = c(2, 2, 2),
-      stringsAsFactors = FALSE
+      precursorMz = c(150, 160, 170),
+      msLevel = c(2, 2, 2),
+      rtime = c(412, 12.23, 4)
     )
   )
 
@@ -346,8 +390,7 @@ test_that("subsetting with numeric, logical, and character indices works with pe
     data.frame(
       spectrum_id_ = c("spec1", "spec2", "spec3"),
       mz          = I(list(c(100, 200), c(150, 250), c(175, 275))),
-      intensity   = I(list(c(10, 20), c(15, 25), c(17, 27))),
-      stringsAsFactors = FALSE
+      intensity   = I(list(c(10, 20), c(15, 25), c(17, 27)))
     )
   )
 
@@ -363,9 +406,11 @@ test_that("subsetting with numeric, logical, and character indices works with pe
   expect_equal(peaks_num[[1]][, "mz"], c(100, 200))
   expect_equal(peaks_num[[2]][, "mz"], c(150, 250))
 
-  spdata_num <- spectraData(be_num, columns = c("spectrum_id_", "precursorMz", "mz", "intensity"))
+  spdata_num <- spectraData(be_num, columns = c("spectrum_id_", "precursorMz",
+                                                "mz", "intensity", "rtime"))
   expect_equal(nrow(spdata_num), 2)
   expect_equal(spdata_num$spectrum_id_, c("spec1", "spec2"))
+  expect_equal(spdata_num$rtime, be$rtime[1:2])
 
   # Logical subsetting
   be_log <- be[c(TRUE, FALSE, TRUE)]
@@ -375,8 +420,10 @@ test_that("subsetting with numeric, logical, and character indices works with pe
   expect_equal(peaks_log[[1]][, "mz"], c(100, 200))
   expect_equal(peaks_log[[2]][, "mz"], c(175, 275))
 
-  spdata_log <- spectraData(be_log, columns = c("spectrum_id_", "precursorMz", "mz", "intensity"))
+  spdata_log <- spectraData(be_log, columns = c("spectrum_id_", "precursorMz",
+                                                "mz", "intensity", "rtime"))
   expect_equal(spdata_log$spectrum_id_, c("spec1", "spec3"))
+  expect_equal(spdata_log$rtime, be$rtime[c(1, 3)])
 
   # Character subsetting
   be_char <- be[c("spec2")]
@@ -386,12 +433,14 @@ test_that("subsetting with numeric, logical, and character indices works with pe
   expect_equal(peaks_char[[1]][, "mz"], c(150, 250))
   expect_equal(peaks_char[[1]][, "intensity"], c(15, 25))
 
-  spdata_char <- spectraData(be_char, columns = c("spectrum_id_", "precursorMz", "mz", "intensity"))
+  spdata_char <- spectraData(be_char, columns = c("spectrum_id_", "precursorMz",
+                                                  "mz", "intensity", "rtime"))
   expect_equal(nrow(spdata_char), 1)
   expect_equal(spdata_char$spectrum_id_, "spec2")
   expect_s4_class(spdata_char$mz, "NumericList")
   expect_equal(as.numeric(spdata_char$mz[[1]]), c(150, 250))
   expect_equal(as.numeric(spdata_char$intensity[[1]]), c(15, 25))
+  expect_equal(spdata_char$rtime, be$rtime[2])
 
   clear_db(dbcon)
 })
@@ -433,7 +482,6 @@ test_that("dataStorage returns correct character vector with two collections", {
 
   clear_db(dbcon)
 })
-
 
 test_that("reset restores the backend with two collections", {
   dbcon <- test_dbcon()

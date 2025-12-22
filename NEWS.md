@@ -5,6 +5,7 @@
 - Initialize `MsBackendMongoDb` with spectra variables retrieved from the
   database.
 - Refactor `spectraData()` to support caching variables.
+- Complete and expand unit tests.
 
 ## Changes in version 0.97.1
 

@@ -359,7 +359,7 @@ setMethod("[", "MsBackendMongoDb",
               if (missing(i)) return(x)
 
               # Convert i to numeric index
-              i <- MsCoreUtils::i2index(i, length(x), x@spectraIds)
+              i <- i2index(i, length(x), x@spectraIds)
 
               # Subset backend object
               extractByIndex(x, i)
@@ -374,13 +374,14 @@ setMethod("extractByIndex", c("MsBackendMongoDb", "ANY"),
           function(object, i) {
             # Subset internal IDs
             object@spectraIds <- object@spectraIds[i]
-            object@id_map     <- object@id_map[i]
-            object@nspectra   <- length(object@spectraIds)
+            object@id_map <- object@id_map[i]
+            object@nspectra <- length(object@spectraIds)
 
             if (nrow(object@localData) > 0) {
               object@localData <- object@localData[i, , drop = FALSE]
             }
 
+            ## [TODO] why replacing peak_fun? can't we keep the original one?
             object@peak_fun <- function(obj, columns = c("mz", "intensity")) {
               if (length(obj@spectraIds) == 0) return(list())
               query <- list(spectrum_id_ = list("$in" = as.list(obj@spectraIds)

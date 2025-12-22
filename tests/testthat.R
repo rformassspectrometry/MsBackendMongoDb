@@ -13,6 +13,4 @@ test_check("MsBackendMongoDb")
 
 #' TODO @jo
 #'
-#' - [ ] @dbcon: use class union instead of ANY
-#'
 #' - [ ] continue unit test check from [ on.
