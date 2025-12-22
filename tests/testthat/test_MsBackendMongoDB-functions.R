@@ -1,18 +1,3 @@
-test_dbcon <- function() {
-  temp_db <- paste0("test_db_", as.integer(Sys.time()))
-  list(
-    ms_spectrum_coll = mongo(collection = "ms_spectrum_coll", db = temp_db,
-                             url = "mongodb://localhost:27017"),
-    ms_peaks_coll = mongo(collection = "ms_peaks_coll", db = temp_db,
-                          url = "mongodb://localhost:27017")
-  )
-}
-
-clear_db <- function(dbcon) {
-  dbcon$ms_spectrum_coll$drop()
-  dbcon$ms_peaks_coll$drop()
-}
-
 test_that("connectMsBackendMongoDb returns valid mongo connection list", {
     conns <- connectMsBackendMongoDb(db = paste0("test_db_",
                                                  as.integer(Sys.time())))

@@ -1,21 +1,3 @@
-test_dbcon <- function() {
-  db_name <- "test_spectra_db"
-  list(
-      ms_spectrum_coll = mongo(collection = "ms_spectrum_coll",
-                               db = db_name,
-                               url = "mongodb://ruser:weak_pass@localhost"),
-
-      ms_peaks_coll = mongo(collection = "ms_peaks_coll",
-                            db = db_name,
-                            url = "mongodb://ruser:weak_pass@localhost")
-  )
-}
-
-clear_db <- function(dbcon) {
-  dbcon$ms_spectrum_coll$drop()
-  dbcon$ms_peaks_coll$drop()
-}
-
 test_that("MsBackendMongoDb constructor works (empty)", {
   dbcon <- test_dbcon()
   clear_db(dbcon)
