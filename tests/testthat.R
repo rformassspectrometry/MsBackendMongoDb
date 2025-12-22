@@ -13,11 +13,11 @@ test_dbcon <- function() {
   list(
       ms_spectrum_coll = mongo(collection = "ms_spectrum_coll",
                                db = db_name,
-                               url = "mongodb://mongoadmin:secret@127.0.0.1"),
+                               url = "mongodb://appuser:apppass@127.0.0.1"),
 
       ms_peaks_coll = mongo(collection = "ms_peaks_coll",
                             db = db_name,
-                            url = "mongodb://mongoadmin:secret@127.0.0.1")
+                            url = "mongodb://appuser:apppass@127.0.0.1")
   )
 }
 
