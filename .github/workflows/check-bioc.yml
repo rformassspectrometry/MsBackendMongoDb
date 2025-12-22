@@ -66,9 +66,6 @@ jobs:
     services:
       mongo:
         image: mongo:8
-        env:
-          MONGO_INITDB_ROOT_USERNAME: mongoadmin
-          MONGO_INITDB_ROOT_PASSWORD: secret
         options: >-
           --health-cmd "mongosh --eval 'db.runCommand(\"ping\")'"
           --health-interval 10s
@@ -78,24 +75,24 @@ jobs:
           - 27017:27017
     steps:
 
-      - name: Install mongosh
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y wget gnupg
-          wget -qO- https://www.mongodb.org/static/pgp/server-8.0.asc | sudo tee /etc/apt/trusted.gpg.d/server-8.0.asc
-          echo "deb [ arch=amd64,arm64 ] https://repo.mongodb.org/apt/ubuntu focal/mongodb-org/8.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-8.0.list
-          sudo apt-get update
-          sudo apt-get install -y mongodb-mongosh
-          mongosh --version
+      # - name: Install mongosh
+      #   run: |
+      #     sudo apt-get update
+      #     sudo apt-get install -y wget gnupg
+      #     wget -qO- https://www.mongodb.org/static/pgp/server-8.0.asc | sudo tee /etc/apt/trusted.gpg.d/server-8.0.asc
+      #     echo "deb [ arch=amd64,arm64 ] https://repo.mongodb.org/apt/ubuntu focal/mongodb-org/8.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-8.0.list
+      #     sudo apt-get update
+      #     sudo apt-get install -y mongodb-mongosh
+      #     mongosh --version
 
-      - name: Initalize MongoDB
-        run: |
-          mongosh --host localhost:27017 -u mongoadmin -p secret --authenticationDatabase admin <<EOF
-            db = db.getSiblingDB('test_spectra_db');
-            db.createUser({ user: 'appuser', pwd: 'apppass', roles: [{ role: 'readWrite', db: 'test_spectra_db' }] })
-            db.createCollection('ms_spectrum_coll');
-            db.createCollection('ms_peaks_coll');
-          EOF
+      # - name: Initalize MongoDB
+      #   run: |
+      #     mongosh --host localhost:27017 -u mongoadmin -p secret --authenticationDatabase admin <<EOF
+      #       db = db.getSiblingDB('test_spectra_db');
+      #       db.createUser({ user: 'appuser', pwd: 'apppass', roles: [{ role: 'readWrite', db: 'test_spectra_db' }] })
+      #       db.createCollection('ms_spectrum_coll');
+      #       db.createCollection('ms_peaks_coll');
+      #     EOF
 
       ## Set the R library to the directory matching the
       ## R packages cache step further below when running on Docker (Linux).
