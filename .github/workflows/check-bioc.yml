@@ -62,6 +62,16 @@ jobs:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
 
+    ## Run a MongoDB.
+    services:
+      mongo:
+        image: mongo:8
+        options: >-
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 27017:27017
     steps:
 
       ## Set the R library to the directory matching the
@@ -78,13 +88,13 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Start MongoDB
-        uses: supercharge/mongodb-github-action@1.12.1
-        with:
-          mongodb-version: '8.2'
-          mongodb-username: 'ruser'
-          mongodb-password: 'weak_pass'
-          mongodb-db: 'test_spectra_db'
+      # - name: Start MongoDB
+      #   uses: supercharge/mongodb-github-action@1.12.1
+      #   with:
+      #     mongodb-version: '8.2'
+      #     mongodb-username: 'ruser'
+      #     mongodb-password: 'weak_pass'
+      #     mongodb-db: 'test_spectra_db'
 
       ## R is already included in the Bioconductor docker images
       - name: Setup R from r-lib
