@@ -66,6 +66,9 @@ jobs:
     services:
       mongo:
         image: mongo:8
+        env:
+          MONGO_INITDB_ROOT_USERNAME: mongoadmin
+          MONGO_INITDB_ROOT_PASSWORD: secret
         options: >-
           --health-cmd "mongosh --eval 'db.runCommand(\"ping\")'"
           --health-interval 10s
