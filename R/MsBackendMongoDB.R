@@ -381,36 +381,6 @@ setMethod("extractByIndex", c("MsBackendMongoDb", "ANY"),
               object@localData <- object@localData[i, , drop = FALSE]
             }
 
-            ## [TODO] why replacing peak_fun? can't we keep the original one?
-            object@peak_fun <- function(obj, columns = c("mz", "intensity")) {
-              if (length(obj@spectraIds) == 0) return(list())
-              query <- list(spectrum_id_ = list("$in" = as.list(obj@spectraIds)
-                                                ))
-              res <- obj@.collections$ms_peaks_coll$find(
-                query = jsonlite::toJSON(query, auto_unbox = TRUE)
-              )
-              # Reorder Mongo results to match spectraIds
-              if(!identical(unname(obj@spectraIds), res$spectrum_id_)) {
-                res <- res[fmatch(obj@spectraIds, res$spectrum_id_),
-                           , drop = FALSE]
-              }
-
-              # Then map to list
-              peaks_list <- lapply(seq_len(nrow(res)), function(i) {
-                r <- res[i, , drop = FALSE]
-                if(nrow(r) == 0) {
-                  matrix(numeric(0), ncol = 2,
-                         dimnames = list(NULL, c("mz", "intensity")))
-                } else {
-                  cbind(mz = unlist(r$mz), intensity = unlist(r$intensity))
-                }
-              })
-              names(peaks_list) <- obj@spectraIds
-
-              peaks_list
-            }
-
-            validObject(object)
             object
           }
         )
