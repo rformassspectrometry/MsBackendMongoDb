@@ -27,3 +27,18 @@ clear_db <- function(dbcon) {
 }
 
 test_check("MsBackendMongoDb")
+
+## RUN THE TESTS FROM SPECTRA
+test_suite <- system.file("test_backends", "test_MsBackend",
+                          package = "Spectra")
+
+library(msdata)
+fls <- dir(system.file("sciex", package = "msdata"), full.names = TRUE)
+sp <- Spectra(fls)
+mcon <- connectMsBackendMongoDb(
+    db = "test_spectra_db",
+    url = "mongodb://127.0.0.1",
+    clean = TRUE)
+
+be <- setBackend(sp[1:200], backend = MsBackendMongoDb(), dbcon = mcon)@backend
+test_dir(test_suite, stop_on_failure = TRUE)

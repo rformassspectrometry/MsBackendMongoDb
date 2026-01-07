@@ -19,6 +19,7 @@
 \alias{extractByIndex,MsBackendMongoDb-method}
 \alias{show,MsBackendMongoDb-method}
 \alias{extractByIndex,MsBackendMongoDb,ANY-method}
+\alias{supportsSetBackend,MsBackendMongoDb-method}
 \title{\code{Spectra} MS backend storing data in a MongoDb database}
 \usage{
 \S4method{show}{MsBackendMongoDb}(object)
@@ -50,6 +51,8 @@
 \S4method{extractByIndex}{MsBackendMongoDb,ANY}(object, i)
 
 \S4method{reset}{MsBackendMongoDb}(object)
+
+\S4method{supportsSetBackend}{MsBackendMongoDb}(object, ...)
 }
 \arguments{
 \item{object}{A \code{MsBackendMongoDb} instance}
@@ -87,21 +90,21 @@ but supports temporary modifications of spectra variables via caching.
 }
 \note{
 \code{MsBackendMongoDb} keeps a connection to a MongoDb collection(s) and fetches
-spectra and peaks data on demand. By storing only the primary keys (\code{spectrum_id})
-in memory, it ensures minimal memory usage, while peaks and metadata are fetched
-dynamically.
+spectra and peaks data on demand. By storing only the primary keys
+(\code{spectrum_id}) in memory, it ensures minimal memory usage, while peaks and
+metadata are fetched dynamically.
 
 The backend inherits from \code{\link[Spectra:MsBackendCached]{Spectra::MsBackendCached()}} and supports temporary
-modification of spectra variables via the \verb{$<-} operator. Original data in the
-database cannot be changed (intensities and m/z values are read-only).
+modification of spectra variables via the \verb{$<-} operator. Original data in
+the database cannot be changed (intensities and m/z values are read-only).
 }
 \section{Creation of backend objects}{
 
 
 New backend objects can be created using:
 
-\if{html}{\out{<div class="sourceCode r">}}\preformatted{backend <- MsBackendMongoDb(dbcon = list(compounds_info_coll = mongo_connection))
-backend <- backendInitialize(backend, dbcon = backend@dbcon)
+\if{html}{\out{<div class="sourceCode r">}}\preformatted{con <- connectMsBackendMongoDb(db = <database name>, url = <db url>)
+backend <- backendInitialize(MsBackendMongoDb(), dbcon = con)
 }\if{html}{\out{</div>}}
 \itemize{
 \item \code{dbcon}: A list of MongoDb collections (e.g. from \code{mongolite::mongo()}) as
@@ -119,8 +122,8 @@ matrices containing the peak data for each spectrum.
 \item \code{peaksVariables(object)}: returns available columns for \code{peaksData}.
 \item \code{intensity(object)}, \code{mz(object)}: return \code{SimpleList} objects with numeric
 intensity or m/z values for each spectrum.
-\item \code{spectraData(object, columns)}: returns a \code{DataFrame} with requested spectrum
-metadata columns.
+\item \code{spectraData(object, columns)}: returns a \code{DataFrame} with requested
+spectrum metadata columns.
 \item \code{spectraNames(object)}: returns \code{spectrum_id} values as character.
 }
 }
@@ -136,8 +139,8 @@ metadata columns.
 \section{Subsetting and extraction}{
 
 \itemize{
-\item \verb{[i]} and \code{extractByIndex(object, i)} subset the backend by spectrum indices.
-Original data in the database is never changed.
+\item \verb{[i]} and \code{extractByIndex(object, i)} subset the backend by spectrum
+indices. Original data in the database is never changed.
 \item \code{reset(object)} restores the backend to its original state, removing
 subsetting and cached variables.
 }
