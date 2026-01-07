@@ -21,12 +21,15 @@ but supports temporary modifications of spectra variables via caching."><!-- mat
       </button>
       <span class="navbar-brand">
         <a class="navbar-link" href="../index.html">MsBackendMongoDb</a>
-        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.97.2</span>
+        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.97.3</span>
       </span>
     </div>
 
     <div id="navbar" class="navbar-collapse collapse">
       <ul class="nav navbar-nav"><li>
+  <a href="../articles/MsBackendMongoDb.html">Get started</a>
+</li>
+<li>
   <a href="../reference/index.html">Reference</a>
 </li>
 <li>
@@ -104,7 +107,10 @@ but supports temporary modifications of spectra variables via caching.</p>
 <span><span class="fu">extractByIndex</span><span class="op">(</span><span class="va">object</span>, <span class="va">i</span><span class="op">)</span></span>
 <span></span>
 <span><span class="co"># S4 method for class 'MsBackendMongoDb'</span></span>
-<span><span class="fu">reset</span><span class="op">(</span><span class="va">object</span><span class="op">)</span></span></code></pre></div>
+<span><span class="fu">reset</span><span class="op">(</span><span class="va">object</span><span class="op">)</span></span>
+<span></span>
+<span><span class="co"># S4 method for class 'MsBackendMongoDb'</span></span>
+<span><span class="fu">supportsSetBackend</span><span class="op">(</span><span class="va">object</span>, <span class="va">...</span><span class="op">)</span></span></code></pre></div>
     </div>
 
     <div id="arguments">
@@ -160,12 +166,12 @@ but supports temporary modifications of spectra variables via caching.</p>
     <div id="note">
     <h2>Note</h2>
     <p><code>MsBackendMongoDb</code> keeps a connection to a MongoDb collection(s) and fetches
-spectra and peaks data on demand. By storing only the primary keys (<code>spectrum_id</code>)
-in memory, it ensures minimal memory usage, while peaks and metadata are fetched
-dynamically.</p>
+spectra and peaks data on demand. By storing only the primary keys
+(<code>spectrum_id</code>) in memory, it ensures minimal memory usage, while peaks and
+metadata are fetched dynamically.</p>
 <p>The backend inherits from <code><a href="https://rdrr.io/pkg/Spectra/man/MsBackendCached.html" class="external-link">Spectra::MsBackendCached()</a></code> and supports temporary
-modification of spectra variables via the <code>$&lt;-</code> operator. Original data in the
-database cannot be changed (intensities and m/z values are read-only).</p>
+modification of spectra variables via the <code>$&lt;-</code> operator. Original data in
+the database cannot be changed (intensities and m/z values are read-only).</p>
     </div>
     <div id="creation-of-backend-objects">
     <h2>Creation of backend objects</h2>
@@ -173,8 +179,9 @@ database cannot be changed (intensities and m/z values are read-only).</p>
 
 
 <p>New backend objects can be created using:</p>
-<p></p><div class="sourceCode r"><pre><code><span><span class="va">backend</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/MsBackendMongoDb.html">MsBackendMongoDb</a></span><span class="op">(</span>dbcon <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span>compounds_info_coll <span class="op">=</span> <span class="va">mongo_connection</span><span class="op">)</span><span class="op">)</span></span>
-<span><span class="va">backend</span> <span class="op">&lt;-</span> <span class="fu">backendInitialize</span><span class="op">(</span><span class="va">backend</span>, dbcon <span class="op">=</span> <span class="va">backend</span><span class="op">@</span><span class="va">dbcon</span><span class="op">)</span></span></code></pre><p></p></div><ul><li><p><code>dbcon</code>: A list of MongoDb collections (e.g. from <code><a href="https://jeroen.r-universe.dev/mongolite/reference/mongo.html" class="external-link">mongolite::mongo()</a></code>) as
+<p></p><div class="sourceCode r"><pre><code>con &lt;- connectMsBackendMongoDb(db = &lt;database name&gt;, url = &lt;db url&gt;)
+backend &lt;- backendInitialize(MsBackendMongoDb(), dbcon = con)
+</code></pre><p></p></div><ul><li><p><code>dbcon</code>: A list of MongoDb collections (e.g. from <code><a href="https://jeroen.r-universe.dev/mongolite/reference/mongo.html" class="external-link">mongolite::mongo()</a></code>) as
 created by the <code><a href="connectMsBackendMongoDb.html">connectMsBackendMongoDb()</a></code>.</p></li>
 <li><p><code>backendInitialize()</code>: populates the object with spectrum IDs and caches
 metadata. If <code>data</code> is provided, it can insert data into the collection.</p></li>
@@ -188,8 +195,8 @@ matrices containing the peak data for each spectrum.</p></li>
 <li><p><code>peaksVariables(object)</code>: returns available columns for <code>peaksData</code>.</p></li>
 <li><p><code>intensity(object)</code>, <code>mz(object)</code>: return <code>SimpleList</code> objects with numeric
 intensity or m/z values for each spectrum.</p></li>
-<li><p><code>spectraData(object, columns)</code>: returns a <code>DataFrame</code> with requested spectrum
-metadata columns.</p></li>
+<li><p><code>spectraData(object, columns)</code>: returns a <code>DataFrame</code> with requested
+spectrum metadata columns.</p></li>
 <li><p><code>spectraNames(object)</code>: returns <code>spectrum_id</code> values as character.</p></li>
 </ul></div>
     <div id="read-only-data">
@@ -203,8 +210,8 @@ metadata columns.</p></li>
     <h2>Subsetting and extraction</h2>
 
 
-<ul><li><p><code>[i]</code> and <code>extractByIndex(object, i)</code> subset the backend by spectrum indices.
-Original data in the database is never changed.</p></li>
+<ul><li><p><code>[i]</code> and <code>extractByIndex(object, i)</code> subset the backend by spectrum
+indices. Original data in the database is never changed.</p></li>
 <li><p><code>reset(object)</code> restores the backend to its original state, removing
 subsetting and cached variables.</p></li>
 </ul></div>
