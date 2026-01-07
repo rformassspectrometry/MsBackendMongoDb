@@ -20,21 +20,21 @@
 #'
 #' @export
 MsBackendMongoDb <- function(dbcon = NULL, collections = list()) {
-  new("MsBackendMongoDb",
-       dbcon = dbcon,
-       spectraIds = character(0),
-       .collections = collections,
-       peak_fun = .fetch_peaks_data_long_mongo,
-       localData = data.frame(),
-       nspectra = 0L,
-       id_map = character(0),
-       spectraVariables = c(
-           "spectrum_id_", "msLevel", "polarity",
-           "precursor_mz", "instrument", "instrument_type", "acquisitionNum",
-           "precScanNum", "collision_energy", "predicted", "splash",
-           "dataOrigin", "original_id", "peaks"
-      )
-  )
+    new("MsBackendMongoDb",
+        dbcon = dbcon,
+        spectraIds = character(0),
+        .collections = collections,
+        peak_fun = .fetch_peaks_data_long_mongo,
+        localData = data.frame(),
+        nspectra = 0L,
+        id_map = character(0),
+        spectraVariables = c(
+            "spectrum_id_", "msLevel", "polarity",
+            "precursor_mz", "instrument", "instrument_type", "acquisitionNum",
+            "precScanNum", "collision_energy", "predicted", "splash",
+            "dataOrigin", "original_id", "peaks"
+        )
+        )
 }
 
 #' @title Create a connection to MongoDb
@@ -48,6 +48,11 @@ MsBackendMongoDb <- function(dbcon = NULL, collections = list()) {
 #'
 #' @param url `character(1)` a MongoDb server URL.
 #'
+#' @param clean `logical(1)` whether the collection should be *cleaned*, i.e.,
+#'     if all content should be deleted. Be careful with this parameter as
+#'     setting to `TRUE` will delete evantually persent content from the
+#'     database.
+#'
 #' @return A named `list()` of `mongo` connection objects.
 #'
 #' @author Ahlam Mentag
@@ -56,13 +61,19 @@ MsBackendMongoDb <- function(dbcon = NULL, collections = list()) {
 #'
 #' @export
 connectMsBackendMongoDb <- function(db = "spectra_db",
-                                    url = "mongodb://localhost") {
-    list(
+                                    url = "mongodb://localhost",
+                                    clean = FALSE) {
+    con <- list(
         ms_spectrum_coll = mongo(collection = "ms_spectrum_coll",
                                  db = db, url = url),
         ms_peaks_coll = mongo(collection = "ms_peaks_coll",
                               db = db, url = url)
     )
+    if (clean) {
+        con$ms_spectrum_coll$drop()
+        con$ms_peaks_coll$drop()
+    }
+    con
 }
 
 #' @title Validate a MongoDb Connection Object
@@ -79,25 +90,25 @@ connectMsBackendMongoDb <- function(db = "spectra_db",
 #'
 #' @noRd
 .valid_mongocon <- function(x) {
-  if (is.null(x) || length(x) == 0) return(NULL)
+    if (is.null(x) || length(x) == 0) return(NULL)
 
-  if (inherits(x, "mongo")) {
-    conns <- list(ms_spectrum_coll = x)
-  } else if (is.list(x) && all(sapply(x, inherits, "mongo"))) {
-    conns <- x
-  } else return(paste0("'dbcon' should be a mongolite::mongo object or a ",
-                       "list of mongo objects"))
+    if (inherits(x, "mongo")) {
+        conns <- list(ms_spectrum_coll = x)
+    } else if (is.list(x) && all(sapply(x, inherits, "mongo"))) {
+        conns <- x
+    } else return(paste0("'dbcon' should be a mongolite::mongo object or a ",
+                         "list of mongo objects"))
 
-  ## Required collections for the mongodb backend
-  missing <- setdiff(c("ms_spectrum_coll", "ms_peaks_coll"), names(conns))
-  if (length(missing)) return(paste("Missing required collection:",
-                                    paste(missing, collapse = ", ")))
+    ## Required collections for the mongodb backend
+    missing <- setdiff(c("ms_spectrum_coll", "ms_peaks_coll"), names(conns))
+    if (length(missing)) return(paste("Missing required collection:",
+                                      paste(missing, collapse = ", ")))
 
-  ok <- tryCatch({ conns[[1]]$run('{"ping": 1}'); TRUE },
-                 error = function(e) FALSE)
-  if (!ok) return("MongoDb connection not responding")
+    ok <- tryCatch({ conns[[1]]$run('{"ping": 1}'); TRUE },
+                   error = function(e) FALSE)
+    if (!ok) return("MongoDb connection not responding")
 
-  NULL
+    NULL
 }
 
 #' Extract the MongoDb Connection from a Backend
@@ -126,28 +137,29 @@ connectMsBackendMongoDb <- function(db = "spectra_db",
 #'
 #' @noRd
 .encode_peaks <- function(peaks) {
-  if (is.null(peaks)) return(list(mz = numeric(), intensity = numeric()))
+    if (is.null(peaks)) return(list(mz = numeric(), intensity = numeric()))
 
-  while (is.list(peaks) && !all(c("mz", "intensity") %in% names(peaks))) {
-    if (length(peaks) == 0) return(list(mz = numeric(), intensity = numeric()))
-    peaks <- peaks[[1]]
-  }
+    while (is.list(peaks) && !all(c("mz", "intensity") %in% names(peaks))) {
+        if (length(peaks) == 0) return(list(mz = numeric(),
+                                            intensity = numeric()))
+        peaks <- peaks[[1]]
+    }
 
-  if (is.list(peaks) && all(c("mz", "intensity") %in% names(peaks))) {
-    return(list(mz = as.numeric(unlist(peaks$mz)),
-                intensity = as.numeric(unlist(peaks$intensity))))
-  }
+    if (is.list(peaks) && all(c("mz", "intensity") %in% names(peaks))) {
+        return(list(mz = as.numeric(unlist(peaks$mz)),
+                    intensity = as.numeric(unlist(peaks$intensity))))
+    }
 
-  if (is.matrix(peaks)) return(list(mz = as.numeric(peaks[,1]),
-                                    intensity = as.numeric(peaks[,2])))
-  if (is.data.frame(peaks)) {
-    if (!all(c("mz","intensity") %in% colnames(peaks)))
-      stop("peaks data.frame must have columns 'mz' and 'intensity'")
-    return(list(mz = as.numeric(peaks$mz),
-                intensity = as.numeric(peaks$intensity)))
-  }
+    if (is.matrix(peaks)) return(list(mz = as.numeric(peaks[,1]),
+                                      intensity = as.numeric(peaks[,2])))
+    if (is.data.frame(peaks)) {
+        if (!all(c("mz","intensity") %in% colnames(peaks)))
+            stop("peaks data.frame must have columns 'mz' and 'intensity'")
+        return(list(mz = as.numeric(peaks$mz),
+                    intensity = as.numeric(peaks$intensity)))
+    }
 
-  stop("Unsupported peaks format")
+    stop("Unsupported peaks format")
 }
 
 #' Extract mz and intensity From a MongoDb Peak Document
@@ -160,10 +172,10 @@ connectMsBackendMongoDb <- function(db = "spectra_db",
 #'
 #' @noRd
 .fetch_peaks <- function(doc) {
-  if (is.null(doc)) return(list(mz = numeric(), intensity = numeric()))
-  if (!all(c("mz","intensity") %in% names(doc))) stop("Document missing ",
-                                                      "mz/intensity")
-  list(mz = as.numeric(doc$mz), intensity = as.numeric(doc$intensity))
+    if (is.null(doc)) return(list(mz = numeric(), intensity = numeric()))
+    if (!all(c("mz","intensity") %in% names(doc))) stop("Document missing ",
+                                                        "mz/intensity")
+    list(mz = as.numeric(doc$mz), intensity = as.numeric(doc$intensity))
 }
 
 #' Get columns from the ms_peaks_coll collection
@@ -175,12 +187,14 @@ connectMsBackendMongoDb <- function(db = "spectra_db",
 #' @noRd
 .available_peaks_variables_mongo <- function(object_or_dbcon,
                                              collection = "ms_peaks_coll") {
-  dbcon <- if (inherits(object_or_dbcon, "MsBackendMongoDb"))
-    object_or_dbcon@dbcon[[collection]] else object_or_dbcon[[collection]]
+    dbcon <- if (inherits(object_or_dbcon, "MsBackendMongoDb"))
+                 object_or_dbcon@dbcon[[collection]]
+             else object_or_dbcon[[collection]]
 
-  docs <- dbcon$find('{}', fields = '{"mz":1,"intensity":1,"_id":0}', limit = 1)
-  if (nrow(docs) == 0) return(character(0))
-  c("mz", "intensity")
+    docs <- dbcon$find('{}', fields = '{"mz":1,"intensity":1,"_id":0}',
+                       limit = 1)
+    if (nrow(docs) == 0) return(character(0))
+    c("mz", "intensity")
 }
 
 #' @title Fetch spectraData (scalar + peaks) from MongoDb
@@ -203,52 +217,70 @@ connectMsBackendMongoDb <- function(db = "spectra_db",
 #'
 #' @importFrom methods getMethod
 #'
+#' @importFrom methods as
+#'
+#' @importFrom Spectra coreSpectraVariables
+#'
 #' @noRd
 .fetch_spectra_data_mongo <- function(x, columns = spectraVariables(x)) {
-  ## Get cached spectra data
-  res <- getMethod("spectraData", "MsBackendCached")(x, columns = columns)
-  if (is.null(res))
-      res <- make_zero_col_DFrame(length(x))
+    ## Get cached spectra data
+    res <- getMethod("spectraData", "MsBackendCached")(x, columns = columns)
+    if (is.null(res))
+        res <- make_zero_col_DFrame(length(x))
 
-  peak_cols <- intersect(columns, peaksVariables(x))
-  scalar_cols <- setdiff(columns, c(peak_cols, "mz", "intensity"))
-  scalar_cols <- setdiff(scalar_cols, colnames(res)) # only get what's missing
+    peak_cols <- intersect(columns, peaksVariables(x))
+    scalar_cols <- setdiff(columns, c(peak_cols, "mz", "intensity"))
+    scalar_cols <- setdiff(scalar_cols, colnames(res)) # only get what's missing
 
-  if (length(scalar_cols)) {
-    #fetch scalar metadata
-    projection_fields <- unique(c("spectrum_id_", scalar_cols))
-    projection <- paste0("{", paste(sprintf('"%s":1', projection_fields),
-                                    collapse = ","), ",\"_id\":0}")
+    if (length(scalar_cols)) {
+        ## fetch scalar metadata
+        projection_fields <- unique(c("spectrum_id_", scalar_cols))
+        projection <- paste0("{", paste(sprintf('"%s":1', projection_fields),
+                                        collapse = ","), ",\"_id\":0}")
 
-    # Filter by spectraIds
-    query <- list(spectrum_id_ = list("$in" = as.list(x@spectraIds)))
-    docs <- x@dbcon$ms_spectrum_coll$find(
-      query = toJSON(query, auto_unbox = TRUE),
-      fields = projection
-    )
+        ## Filter by spectraIds
+        query <- list(spectrum_id_ = list("$in" = as.list(x@spectraIds)))
+        docs <- x@dbcon$ms_spectrum_coll$find(
+                                             query = toJSON(query,
+                                                            auto_unbox = TRUE),
+                                             fields = projection
+                                         )
 
-    # Reorder rows to match backend
-    docs <- docs[match(x@spectraIds, docs$spectrum_id_), , drop = FALSE]
+        ## Reorder rows to match backend
+        docs <- docs[match(x@spectraIds, docs$spectrum_id_), , drop = FALSE]
 
-    res <- cbind(res, docs)
-  }
-  # fetch peaks if requested
-  if (length(peak_cols) && !is.null(x@peak_fun)) {
-    peaks_list <- x@peak_fun(x, columns = peak_cols)
-    if ("mz" %in% peak_cols) {
-      res$mz <- NumericList(lapply(peaks_list, function(p) {
-        if (is.null(p) || nrow(p) == 0) numeric(0) else p[, "mz"]
-      }), compress = FALSE)
+        res <- cbind(res, docs)
     }
-    if ("intensity" %in% peak_cols) {
-      res$intensity <- NumericList(lapply(peaks_list, function(p) {
-        if (is.null(p) || nrow(p) == 0) numeric(0) else p[, "intensity"]
-      }), compress = FALSE)
+    ## fetch peaks if requested
+    if (length(peak_cols) && !is.null(x@peak_fun)) {
+        peaks_list <- x@peak_fun(x, columns = peak_cols)
+        if ("mz" %in% peak_cols) {
+            res$mz <- NumericList(lapply(peaks_list, function(p) {
+                if (is.null(p) || nrow(p) == 0) numeric(0) else p[, "mz"]
+            }), compress = FALSE)
+        }
+        if ("intensity" %in% peak_cols) {
+            res$intensity <- NumericList(lapply(peaks_list, function(p) {
+                if (is.null(p) || nrow(p) == 0) numeric(0) else p[, "intensity"]
+            }), compress = FALSE)
+        }
     }
-  }
 
-  # Return DataFrame with requested columns
-  DataFrame(res[, columns, drop = FALSE])
+    ## Ensure core variables have the correct data type.
+    csv <- coreSpectraVariables()
+    csv <- csv[names(csv) %in% colnames(res)]
+    csv <- csv[!names(csv) %in% c("mz", "intensity")]
+    if (length(csv)) {
+        cl <- vapply(res[names(csv)], class, NA_character_)
+        csv <- csv[cl != csv]
+        csv[csv == "numeric"] <- "double"
+        for (i in seq_along(csv)) {
+            res[[names(csv)[i]]] <- as(res[[names(csv)[i]]], csv[i])
+        }
+    }
+
+    ## Return DataFrame with requested columns
+    DataFrame(res[, columns, drop = FALSE])
 }
 
 #' @title Fetch Peak Data From MongoDb for a Backend
@@ -269,39 +301,39 @@ connectMsBackendMongoDb <- function(db = "spectra_db",
 #' @noRd
 .fetch_peaks_data_long_mongo <- function(object, columns = c("mz","intensity"),
                                          drop = FALSE) {
-  ids <- object@spectraIds
-  if (length(ids) == 0) return(list())
+    ids <- object@spectraIds
+    if (length(ids) == 0) return(list())
 
-  # Properly quote character IDs for Mongo $in
-  ids_json <- paste0('"', ids, '"')
+    ## Properly quote character IDs for Mongo $in
+    ids_json <- paste0('"', ids, '"')
 
-  query <- sprintf('{"spectrum_id_": {"$in": [%s]}}',
-                   paste(ids_json, collapse = ","))
+    query <- sprintf('{"spectrum_id_": {"$in": [%s]}}',
+                     paste(ids_json, collapse = ","))
 
-  # Query MongoDB
-  docs <- object@.collections$ms_peaks_coll$find(
-    query = query,
-    fields = '{"spectrum_id_": 1, "mz": 1, "intensity": 1, "_id": 0}'
-  )
+    ## Query MongoDB
+    docs <- object@.collections$ms_peaks_coll$find(
+              query = query,
+              fields = '{"spectrum_id_": 1, "mz": 1, "intensity": 1, "_id": 0}'
+             )
 
-  # Reorder documents to match backend spectraIds
-  if(!identical(unname(ids), docs$spectrum_id_)) {
-    docs <- docs[fmatch(ids, docs$spectrum_id_), , drop = FALSE]
-  }
+    ## Reorder documents to match backend spectraIds
+    if(!identical(unname(ids), docs$spectrum_id_)) {
+        docs <- docs[fmatch(ids, docs$spectrum_id_), , drop = FALSE]
+    }
 
-  # Convert each row to numeric matrix
-  peaks_list <- lapply(seq_len(nrow(docs)), function(i) {
-    mz_vals <- docs$mz[[i]]
-    int_vals <- docs$intensity[[i]]
+    ## Convert each row to numeric matrix
+    peaks_list <- lapply(seq_len(nrow(docs)), function(i) {
+        mz_vals <- docs$mz[[i]]
+        int_vals <- docs$intensity[[i]]
 
-    if (is.null(mz_vals)) mz_vals <- numeric(0)
-    if (is.null(int_vals)) int_vals <- numeric(0)
+        if (is.null(mz_vals)) mz_vals <- numeric(0)
+        if (is.null(int_vals)) int_vals <- numeric(0)
 
-    cbind(mz = as.numeric(mz_vals), intensity = as.numeric(int_vals))
-  })
+        cbind(mz = as.numeric(mz_vals), intensity = as.numeric(int_vals))
+    })
 
-  names(peaks_list) <- ids
-  peaks_list
+    names(peaks_list) <- ids
+    peaks_list
 }
 
 #' @title Create MongoDb Indices for Efficient Spectra Queries
@@ -321,17 +353,17 @@ connectMsBackendMongoDb <- function(db = "spectra_db",
 #'
 #' @noRd
 .create_indices_mongo <- function(dbcon) {
-  sp_coll <- dbcon[["ms_spectrum_coll"]]
-  pk_coll <- dbcon[["ms_peaks_coll"]]
+    sp_coll <- dbcon[["ms_spectrum_coll"]]
+    pk_coll <- dbcon[["ms_peaks_coll"]]
 
-  message("Creating MongoDB indices ...")
-  sp_coll$index(add = '{"spectrum_id_": 1}')
-  sp_coll$index(add = '{"precursor_mz": 1}')
-  sp_coll$index(add = '{"msLevel": 1}')
+    message("Creating MongoDB indices ...")
+    sp_coll$index(add = '{"spectrum_id_": 1}')
+    sp_coll$index(add = '{"precursor_mz": 1}')
+    sp_coll$index(add = '{"msLevel": 1}')
 
-  pk_coll$index(add = '{"spectrum_id_": 1}')
-  message("Indices created")
-  TRUE
+    pk_coll$index(add = '{"spectrum_id_": 1}')
+    message("Indices created")
+    TRUE
 }
 
 #' Insert or update spectra into MongoDB backend (scalars + peaks)
@@ -349,46 +381,51 @@ connectMsBackendMongoDb <- function(db = "spectra_db",
 #'
 #' @noRd
 .insert_new_backend_mongo <- function(dbcon, df) {
-  if (!(is.data.frame(df) | inherits(df, "DataFrame")))
-    stop("df must be a 'data.frame' or a 'DataFrame'")
+    if (!(is.data.frame(df) | inherits(df, "DataFrame")))
+        stop("df must be a 'data.frame' or a 'DataFrame'")
 
-  if (!"spectrum_id_" %in% names(df))
-    stop("df must contain a 'spectrum_id_' column")
+    if (!"spectrum_id_" %in% colnames(df))
+        stop("df must contain a 'spectrum_id_' column")
 
-  if (!"peaks" %in% names(df))
-    stop("df must contain a 'peaks' column")
+    if (!"peaks" %in% names(df))
+        stop("df must contain a 'peaks' column")
 
-  for (i in seq_len(nrow(df))) {
-    sid <- df$spectrum_id_[i]
+    for (i in seq_len(nrow(df))) {
+        sid <- df$spectrum_id_[i]
 
-    scalar_list <- as.list(df[i, setdiff(names(df), "peaks"), drop = FALSE])
-    scalar_list <- lapply(scalar_list, function(v) if (length(v) == 1)
-                   unlist(v) else v)
+        scalar_list <- as.list(df[i, setdiff(names(df), "peaks"), drop = FALSE])
+        scalar_list <- lapply(scalar_list, function(v) if (length(v) == 1)
+                                                           unlist(v) else v)
 
-    dbcon$ms_spectrum_coll$update(
-      query = jsonlite::toJSON(list(spectrum_id_ = sid), auto_unbox = TRUE),
-      update = jsonlite::toJSON(list('$set' = scalar_list), auto_unbox = TRUE),
-      upsert = TRUE
-    )
+        dbcon$ms_spectrum_coll$update(
+                                   query = toJSON(list(spectrum_id_ = sid),
+                                                  auto_unbox = TRUE),
+                                   update = toJSON(list('$set' = scalar_list),
+                                                   auto_unbox = TRUE,
+                                                   digits = NA),
+                                   upsert = TRUE
+                               )
 
-    peaks <- df$peaks[[i]]
-    if (!all(c("mz", "intensity") %in% names(peaks)))
-      stop("Each peaks element must have 'mz' and 'intensity'")
+        peaks <- df$peaks[[i]]
+        if (!all(c("mz", "intensity") %in% names(peaks)))
+            stop("Each peaks element must have 'mz' and 'intensity'")
 
-    peaks_doc <- list(
-      spectrum_id_ = sid,
-      mz = as.numeric(peaks$mz),
-      intensity = as.numeric(peaks$intensity)
-    )
+        peaks_doc <- list(
+            spectrum_id_ = sid,
+            mz = as.numeric(peaks$mz),
+            intensity = as.numeric(peaks$intensity)
+        )
 
-    dbcon$ms_peaks_coll$update(
-      query = jsonlite::toJSON(list(spectrum_id_ = sid), auto_unbox = TRUE),
-      update = jsonlite::toJSON(list('$set' = peaks_doc), auto_unbox = TRUE),
-      upsert = TRUE
-    )
-  }
+        dbcon$ms_peaks_coll$update(
+                                query = toJSON(list(spectrum_id_ = sid),
+                                               auto_unbox = TRUE),
+                                update = toJSON(list('$set' = peaks_doc),
+                                                auto_unbox = TRUE, digits = NA),
+                                upsert = TRUE
+                            )
+    }
 
-  invisible(TRUE)
+    invisible(TRUE)
 }
 
 #' Convert Spectra or data.frame and insert into new MongoDB backend
@@ -404,43 +441,29 @@ connectMsBackendMongoDb <- function(db = "spectra_db",
 #'
 #' @noRd
 .createMsBackendMongoDb <- function(dbcon, x) {
+    if (!is.list(dbcon) || !all(sapply(dbcon, inherits, "mongo")))
+        stop("'dbcon' must be a list of mongo connection objects.")
+    if (is.null(x))
+        stop("Input x must be a Spectra object or a data.frame.")
+    ## Convert Spectra to data.frame if needed
+    if (inherits(x, "Spectra"))
+        x <- spectraData(x, columns = union(spectraVariables(x),
+                                            peaksVariables(x)))
+    if (!(is.data.frame(x) | inherits(x, "DataFrame")))
+        stop("Input x must be a data.frame or Spectra object.")
+    x <- .reformat_mz_intensity(x)
 
-  if (!is.list(dbcon) || !all(sapply(dbcon, inherits, "mongo")))
-    stop("'dbcon' must be a list of mongo connection objects.")
+    last_index <- 1
+    if (dbcon$ms_spectrum_coll$count('{}') > 0) {
+        existing_ids <- dbcon$ms_spectrum_coll$distinct("spectrum_id_")
+        last_index <- max(as.integer(sub("SP", "", existing_ids))) + 1L
+    }
+    x$spectrum_id_ <- sprintf(
+        paste0("SP", "%0", ceiling(log10(nrow(x) + last_index)), "d"),
+        seq(from = last_index, length.out = nrow(x)))
 
-  if (is.null(x))
-    stop("Input x must be a Spectra object or a data.frame.")
-
-  # Convert Spectra to data.frame if needed
-  if (inherits(x, "Spectra")) {
-    x <- spectraData(x, columns = union(spectraVariables(x), peaksVariables(x)))
-  }
-
-  if (!(is.data.frame(x) | inherits(x, "DataFrame")))
-    stop("Input x must be a data.frame or Spectra object.")
-
-  x <- .reformat_mz_intensity(x)
-
-  # Normalize peaks ... MAYBE NOT NEEDED?
-  x$peaks <- lapply(x$peaks, function(p) {
-    list(
-      mz = as.numeric(p$mz),
-      intensity = as.numeric(p$intensity)
-    )
-  })
-
-  existing_ids <- character(0)
-  if (dbcon$ms_spectrum_coll$count('{}') > 0) {
-    existing_ids <- dbcon$ms_spectrum_coll$distinct("spectrum_id_")
-  }
-
-  n_existing <- length(existing_ids)
-  n_new <- nrow(x)
-
-  x$spectrum_id_ <- paste0("spec", seq_len(n_new) + n_existing)
-
-  if (!is.data.frame(x)) x <- as.data.frame(x)
-  .insert_new_backend_mongo(dbcon, x)
+    if (!is.data.frame(x)) x <- as.data.frame(x)
+    .insert_new_backend_mongo(dbcon, x)
 }
 
 #' Small helper function to reformat eventually present "mz" and "intensity"
@@ -482,38 +505,38 @@ connectMsBackendMongoDb <- function(db = "spectra_db",
 #'
 #' @noRd
 .combine_mongo <- function(backends) {
-  if (!all(sapply(backends, inherits, "MsBackendMongoDb")))
-    stop("All backends must be MsBackendMongoDb")
+    if (!all(sapply(backends, inherits, "MsBackendMongoDb")))
+        stop("All backends must be MsBackendMongoDb")
 
-  if (length(backends) == 1) return(backends[[1]])
+    if (length(backends) == 1) return(backends[[1]])
 
-  dbcon_list <- lapply(backends, function(x) x@dbcon)
-  if (!all(sapply(dbcon_list, function(x) identical(x, dbcon_list[[1]]))))
-    stop("All backends must have the same connection")
+    dbcon_list <- lapply(backends, function(x) x@dbcon)
+    if (!all(sapply(dbcon_list, function(x) identical(x, dbcon_list[[1]]))))
+        stop("All backends must have the same connection")
 
-  dbcon <- dbcon_list[[1]]
+    dbcon <- dbcon_list[[1]]
 
-  # Combine character spectraIds
-  combined_ids <- unlist(lapply(backends, function(x) x@spectraIds))
-  n <- length(combined_ids)
+    ## Combine character spectraIds
+    combined_ids <- unlist(lapply(backends, function(x) x@spectraIds))
+    n <- length(combined_ids)
 
-  # Combine spectraVariables
-  combined_vars <- unique(unlist(lapply(backends,
-                                        function(x) x@spectraVariables),
-                                                    use.names = FALSE))
+    ## Combine spectraVariables
+    combined_vars <- unique(unlist(lapply(backends,
+                                          function(x) x@spectraVariables),
+                                   use.names = FALSE))
 
-  combined_localData <- data.frame(dummy = rep(NA_integer_, n))
+    combined_localData <- data.frame(dummy = rep(NA_integer_, n))
 
-  # Use peak_fun from first backend
-  combined_peak_fun <- backends[[1]]@peak_fun
+    ## Use peak_fun from first backend
+    combined_peak_fun <- backends[[1]]@peak_fun
 
-  new("MsBackendMongoDb",
-      dbcon = dbcon,
-      spectraIds = combined_ids,
-      id_map = combined_ids,
-      nspectra = n,
-      localData = combined_localData,
-      .collections = dbcon,
-      peak_fun = combined_peak_fun,
-      spectraVariables = combined_vars)
+    new("MsBackendMongoDb",
+        dbcon = dbcon,
+        spectraIds = combined_ids,
+        id_map = combined_ids,
+        nspectra = n,
+        localData = combined_localData,
+        .collections = dbcon,
+        peak_fun = combined_peak_fun,
+        spectraVariables = combined_vars)
 }

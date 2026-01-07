@@ -1,0 +1,160 @@
+---
+title: "Storing Mass Spectrometry Data in MongoDB Databases"
+output:
+    BiocStyle::html_document:
+        toc_float: true
+vignette: >
+    %\VignetteIndexEntry{Storing Mass Spectrometry Data in MongoDB Databases}
+    %\VignetteEngine{knitr::rmarkdown}
+    %\VignetteEncoding{UTF-8}
+    %\VignettePackage{MsBackendMongoDb}
+    %\VignetteDepends{MsBackendMongoDb,BiocStyle,msdata,mzR,mongolite}
+---
+
+```{r style, echo = FALSE, results = 'asis', message=FALSE}
+BiocStyle::markdown()
+```
+
+# Introduction
+
+The `r Biocpkg("Spectra")` Bioconductor package provides a flexible and
+expandable infrastructure for handling and processing mass spectrometry (MS)
+data in R. The package supports interchangeable use of different *backends* that
+provide additional file format support or different ways to store and
+*represent* MS data. The *MsBackendMongoDb* package expands *Spectra* enabling
+to store and retrieve MS data from [MongoDB](https://www.mongodb.com/)
+databases. MongoDB is a *NoSQL* database for storing structured, semi-structured
+and unstructured data.
+
+```{r, echo = FALSE}
+#' Only evaluate code if a running mongodb server is available on localhost
+HAVE_MONGO <- TRUE
+```
+
+# Installation and system requirements
+
+*MsBackendMongoDb* along with all required dependencies can be installed with:
+
+```{r, eval = FALSE}
+install.packages("BiocManager")
+install.packages("remotes")
+BiocManager::install("RforMassSpectrometry/MsBackendMongoDb")
+```
+
+For using *MsBackendMongoDb*, access to a MongoDB, either running locally or
+remotely, is required. See the official [MongoDB](https://www.mongodb.com/) web
+page for information on installation and setup of a MongoDB database server.
+
+# Storing MS data in a MongoDB database
+
+In this section we store MS data from two mzML files into an empty MongoDB
+database. We create below a `Spectra` object representing the MS data from these
+two data files.
+
+```{r}
+library(Spectra)
+library(msdata)
+fls <- dir(system.file("sciex", package = "msdata"), full.names = TRUE)
+
+sp <- Spectra(fls)
+sp
+```
+
+This `Spectra` object has thus `r length(sp)` spectra. We next change the
+MS data *storage* mode for this object to a MongoDB database. We therefore
+establish below a connection to a local MongoDB server. The
+`connectMsBackendMongoDb()` function connects to a database with the name
+specified with parameter `db` and creates the required MongoDB *collections* to
+store the MS data. The database will be created automatically if it does not
+already exist. By setting parameter `clean = TRUE` we ensure that any previous
+database with the same name as defined with `db` gets first erased. Thus, this
+parameter should be used with caution!
+
+```{r}
+#' connect to a MongoDB database
+library(MsBackendMongoDb)
+mcon <- connectMsBackendMongoDb(
+    db = "ms_backend_mongodb",
+    url = "mongodb://localhost:27017",
+    clean = TRUE)
+```
+
+We can next use the `setBackend()` function to transfer the data from the
+original mzML files to the MongoDB database.
+
+```{r}
+sp_mng <- setBackend(sp, backend = MsBackendMongoDb(), dbcon = mcon)
+```
+
+The memory requirements for a `Spectra` object with a `MsBackendMongoDb` are
+very low since only the IDs of the spectra are kept in the main memory while all
+data is stored in the database:
+
+```{r}
+print(object.size(sp_mng), units = "MB")
+```
+
+Due to the design of the `Spectra` class, data can be retrieved irrespectively
+of where or how the data is stored. For `Spectra` objects using the
+`MsBackendMongoDb` backend, the data is extracted *on-the-fly* from the MongoDB
+database. Below we get the retention time values from the object and show the
+first 6 values.
+
+```{r}
+rtime(sp_mng) |>
+    head()
+```
+
+Similarly, we can extract the *m/z* values of all spectra from the data
+set. Also in this case, the data is extracted from the database.
+
+```{r}
+mz(sp_mng)
+```
+
+Subset operations will only subset the spectra IDs in the backend, but not
+affect the data stored in the MongoDB. Below we subset the `Spectra` object to
+spectra with index 13, 5, 20 and 21:
+
+```{r}
+sp_mng <- sp_mng[c(13, 5, 20, 21)]
+sp_mng
+```
+
+Any operation on this subset `Spectra` object will only retrieve data from the 4
+selected spectra.
+
+```{r}
+rtime(sp_mng)
+```
+
+As mentioned above, the MongoDB database still contains the full data. We can
+thus use the `reset()` function to *restore* the `Spectra` object to its
+original state:
+
+```{r}
+sp_mng <- reset(sp_mng)
+sp_mng
+```
+
+Finally, the data available from the `Spectra` object using the
+`MsBackendMongoDb` is identical to the original `Spectra` object with the data
+from the original mzML files. We compare below the retention times reported by
+both `Spectra` objects.
+
+```{r}
+all.equal(rtime(sp), rtime(sp_mng))
+```
+
+Also the *m/z* values are identical - with the exception of the names of the
+returned `list`.
+
+```{r}
+all.equal(mz(sp), unname(mz(sp_mng)))
+```
+
+# Session information
+
+```{r}
+sessionInfo()
+```
