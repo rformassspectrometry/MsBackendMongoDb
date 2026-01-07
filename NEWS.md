@@ -1,5 +1,11 @@
 ## MsBackendMongoDb 0.97
 
+## Changes in version 0.97.3
+
+- `mz()` and `intensity()` to return uncompressed `NumericList`.
+- Add a short vignette describing the backend and its properties.
+- Ensure core spectra variables are returned with correct data types.
+
 ## Changes in version 0.97.2
 
 - Initialize `MsBackendMongoDb` with spectra variables retrieved from the
