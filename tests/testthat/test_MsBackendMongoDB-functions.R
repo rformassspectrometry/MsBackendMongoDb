@@ -99,7 +99,7 @@ test_that(".fetch_peaks_data_long_mongo handles multiple spectrum_id_", {
   # Insert peaks as list-columns with character spectrum_id_
   dbcon$ms_peaks_coll$insert(
     data.frame(
-      spectrum_id_ = c("spec1", "spec2"),
+      spectrum_id_ = c("SP1", "SP2"),
       mz = I(list(c(100, 200), c(150, 250))),
       intensity = I(list(c(10, 20), c(15, 25))),
       stringsAsFactors = FALSE
@@ -108,8 +108,8 @@ test_that(".fetch_peaks_data_long_mongo handles multiple spectrum_id_", {
 
   # Create backend and set spectraIds
   be <- MsBackendMongoDb()
-  be@spectraIds <- c("spec1", "spec2")
-  be@id_map     <- c("spec1", "spec2")
+  be@spectraIds <- c("SP1", "SP2")
+  be@id_map     <- c("SP1", "SP2")
   be@nspectra   <- 2L
 
   # Set collections and peak_fun
@@ -139,7 +139,7 @@ test_that(".fetch_spectra_data_mongo works with scalars + peaks", {
   # Insert scalar metadata with character spectrum_id_
   dbcon$ms_spectrum_coll$insert(
     data.frame(
-      spectrum_id_ = c("spec1", "spec2"),
+      spectrum_id_ = c("SP1", "SP2"),
       msLevel      = c(2L, 1L),
       stringsAsFactors = FALSE
     )
@@ -148,7 +148,7 @@ test_that(".fetch_spectra_data_mongo works with scalars + peaks", {
   #Insert peaks separately
   dbcon$ms_peaks_coll$insert(
     data.frame(
-      spectrum_id_ = c("spec1", "spec2"),
+      spectrum_id_ = c("SP1", "SP2"),
       mz           = I(list(c(100, 200), c(150, 250))),
       intensity    = I(list(c(10, 20), c(15, 25))),
       stringsAsFactors = FALSE
@@ -157,8 +157,8 @@ test_that(".fetch_spectra_data_mongo works with scalars + peaks", {
 
   # Initialize backend
   backend <- MsBackendMongoDb()
-  backend@spectraIds <- c("spec1", "spec2")
-  backend@id_map     <- c("spec1", "spec2")
+  backend@spectraIds <- c("SP1", "SP2")
+  backend@id_map     <- c("SP1", "SP2")
   backend@nspectra   <- 2L
   backend@.collections <- list(
     ms_spectrum_coll = dbcon$ms_spectrum_coll,
@@ -171,7 +171,7 @@ test_that(".fetch_spectra_data_mongo works with scalars + peaks", {
   spdata <- .fetch_spectra_data_mongo(backend, columns = c("spectrum_id_", "msLevel", "mz", "intensity"))
 
   expect_equal(nrow(spdata), 2)
-  expect_equal(spdata$spectrum_id_, c("spec1", "spec2"))
+  expect_equal(spdata$spectrum_id_, c("SP1", "SP2"))
   expect_equal(spdata$msLevel, c(2L, 1L))
 
   # Peaks are returned as NumericList
@@ -194,7 +194,7 @@ test_that(".insert_new_backend_mongo inserts or updates correctly", {
 
   # First insert spectrum_id_ as character
   df1 <- data.frame(
-    spectrum_id_ = c("spec1", "spec2"),
+    spectrum_id_ = c("SP1", "SP2"),
     msLevel = c(2L, 1L),
     precursor_mz = c(300, 400),
     stringsAsFactors = FALSE
@@ -206,9 +206,9 @@ test_that(".insert_new_backend_mongo inserts or updates correctly", {
 
   .insert_new_backend_mongo(dbcon, df1)
 
-  # Update spectrum_id_ = "spec2"
+  # Update spectrum_id_ = "SP2"
   df2 <- data.frame(
-    spectrum_id_ = "spec2",
+    spectrum_id_ = "SP2",
     msLevel = 3L,
     precursor_mz = 450,
     stringsAsFactors = FALSE
@@ -220,13 +220,13 @@ test_that(".insert_new_backend_mongo inserts or updates correctly", {
   #check spectra Data
   scalars <- dbcon$ms_spectrum_coll$find('{}')
   expect_equal(nrow(scalars), 2)
-  expect_equal(scalars$msLevel[scalars$spectrum_id_ == "spec2"], 3L)
-  expect_equal(scalars$precursor_mz[scalars$spectrum_id_ == "spec2"], 450)
+  expect_equal(scalars$msLevel[scalars$spectrum_id_ == "SP2"], 3L)
+  expect_equal(scalars$precursor_mz[scalars$spectrum_id_ == "SP2"], 450)
 
 
   # Check peaks
   peaks <- dbcon$ms_peaks_coll$find('{}')
-  idx <- which(peaks$spectrum_id_ == "spec2")
+  idx <- which(peaks$spectrum_id_ == "SP2")
   expect_true(length(idx) == 1)
   expect_equal(peaks$mz[[idx]], c(160, 260))
   expect_equal(peaks$intensity[[idx]], c(700, 1300))
@@ -262,7 +262,7 @@ test_that("spectrum_id_ auto increments as spec'nb' strings", {
   .createMsBackendMongoDb(dbcon, df1)
 
   ids1 <- dbcon$ms_spectrum_coll$distinct("spectrum_id_")
-  expect_equal(ids1, c("spec1", "spec2"))
+  expect_equal(ids1, c("SP1", "SP2"))
 
   df2 <- data.frame(
     precursorMz = c(300, 400),
@@ -278,11 +278,11 @@ test_that("spectrum_id_ auto increments as spec'nb' strings", {
 
   ids2 <- dbcon$ms_spectrum_coll$distinct("spectrum_id_")
   # Existing spec1, spec2 + new spec3, spec4
-  expect_equal(ids2, c("spec1", "spec2", "spec3", "spec4"))
+  expect_equal(ids2, c("SP1", "SP2", "SP3", "SP4"))
 
   #Peaks also inserted correctly
   peaks_docs <- dbcon$ms_peaks_coll$find('{}')
-  expect_equal(sort(peaks_docs$spectrum_id_), c("spec1","spec2","spec3","spec4"))
+  expect_equal(sort(peaks_docs$spectrum_id_), c("SP1","SP2","SP3","SP4"))
 
   # Clean up
   dbcon$ms_spectrum_coll$drop()
@@ -370,3 +370,38 @@ test_that(".reformat_mz_intensity works", {
     expect_equal(res$peaks[[2L]]$intensity, a$intensity[[2L]])
     expect_equal(res$peaks[[3L]]$intensity, a$intensity[[3L]])
 })
+
+test_that("GNPS JSON can be add to MongoDB (first 5 spectra only)  works", {
+  
+  skip_if_not(file.exists("C:/Users/ament/Downloads/GNPS-2026-01-14/ALL_GNPS_cleaned.json"))
+  
+  dbcon <- test_dbcon()
+  clear_db(dbcon)
+  
+  # Import first 5 spectra from JSON
+  .createMsBackendMongoDb(
+    dbcon, 
+    "C:/Users/ament/Downloads/GNPS-2026-01-14/ALL_GNPS_cleaned.json",
+    n_spectra = 5,
+    chunk_size = 2
+  )
+  
+  # Check main spectrum collection
+  n_spectra_inserted <- dbcon$ms_spectrum_coll$count()
+  expect_gt(n_spectra_inserted, 0)
+  expect_lte(n_spectra_inserted, 5)
+
+  # Check peaks collection has entries
+  n_peaks <- dbcon$ms_peaks_coll$count()
+  expect_gt(n_peaks, 0)
+  
+  # Check that spectrum_ids exist and match between collections
+  spectrum_ids <- dbcon$ms_spectrum_coll$distinct("spectrum_id_")
+  peaks_ids <- dbcon$ms_peaks_coll$distinct("spectrum_id_")
+  expect_true(all(spectrum_ids %in% peaks_ids))
+  
+  clear_db(dbcon)
+})
+
+
+
