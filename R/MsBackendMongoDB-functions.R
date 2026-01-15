@@ -391,57 +391,203 @@ connectMsBackendMongoDb <- function(db = "spectra_db",
   invisible(TRUE)
 }
 
-#' Convert Spectra or data.frame and insert into new MongoDB backend
+#' Helper function to reformat peaks from GNPS
+#'
+#' @author Ahlam Mentag
+#' @noRd
+.reformat_gnps_peaks <- function(pks) {
+  
+  if (is.null(pks) || length(pks) == 0)
+    return(list())
+  
+  # Already parsed
+  if (is.list(pks))
+    return(pks)
+  
+  if (!is.character(pks))
+    stop("Unsupported GNPS peaks format")
+  
+  # JSON array [[mz, int], ...]
+  if (grepl("^\\s*\\[\\s*\\[", pks))
+    return(jsonlite::fromJSON(pks))
+  
+  # Python tuple format [(mz, int), ...]
+  if (grepl("^\\s*\\[\\s*\\(", pks)) {
+    pks <- gsub("\\(", "[", pks)
+    pks <- gsub("\\)", "]", pks)
+    return(jsonlite::fromJSON(pks))
+  }
+  
+  stop("Unsupported GNPS peaks format")
+}
+
+
+#' Loading GNPS JSON and insert into MongoDB
 #'
 #' @param dbcon A list of Mongo connections (must include ms_spectrum_coll
 #'        and ms_peaks_coll)
+#'        
+#' @param json_file JSON file path
+#' 
+#' @param n_spectra Maximum number of spectra to insert from the JSon file
+#' 
+#' @param chunk_size Number of spectra per chunk 
+#' 
+#' @return NULL 
 #'
-#' @param x Spectra object or data.frame
+#' @author Ahlam Mentag
+#'
+#' @noRd
+.add_gnps_json_to_mongo <- function(dbcon, json_file, n_spectra = Inf,
+                                       chunk_size = 100) {
+  
+  con <- file(json_file, open = "rb")
+  on.exit(close(con))
+  
+  buffer <- raw()
+  spectra_chunk <- list()
+  brace_count <- 0L
+  total_inserted <- 0L
+  
+  repeat {
+    
+    raw_chunk <- readBin(con, what = "raw", n = 1e6)
+    if (length(raw_chunk) == 0 || total_inserted >= n_spectra)
+      break
+    
+    buffer <- c(buffer, raw_chunk)
+    txt <- gsub("\r\n|\n", "", rawToChar(buffer))
+    chars <- strsplit(txt, "")[[1]]
+    
+    start_idx <- NULL
+    i <- 1
+    
+    while (i <= length(chars) && total_inserted < n_spectra) {
+      
+      if (chars[i] == "{") {
+        if (is.null(start_idx)) start_idx <- i
+        brace_count <- brace_count + 1
+      }
+      
+      if (chars[i] == "}") {
+        brace_count <- brace_count - 1
+        
+        if (brace_count == 0 && !is.null(start_idx)) {
+          
+          obj_txt <- paste(chars[start_idx:i], collapse = "")
+          obj_txt <- sub(",$", "", obj_txt)
+          sp <- jsonlite::fromJSON(obj_txt, simplifyVector = FALSE)
+          
+          if (is.null(sp$spectrum_id))
+            sp$spectrum_id <- paste0("SP", sample(1e6, 1))
+          
+          spectra_chunk[[length(spectra_chunk) + 1]] <- sp
+          start_idx <- NULL
+          
+          if (length(spectra_chunk) >= chunk_size ||
+              total_inserted + length(spectra_chunk) >= n_spectra) {
+            
+            spectra_chunk <- spectra_chunk[
+              seq_len(min(length(spectra_chunk),
+                          n_spectra - total_inserted))
+            ]
+            
+            #Here we add spectraData to ms_spectrum_coll
+            meta_docs <- vapply(spectra_chunk, function(sp) {
+              sp$peaks <- NULL
+              sp$peaks_json <- NULL
+              jsonlite::toJSON(lapply(sp, function(x) x %||% NA),
+                               auto_unbox = TRUE)
+            }, character(1))
+            
+            dbcon$ms_spectrum_coll$insert(meta_docs)
+            
+            #Here we add the peaks to ms_peaks_coll
+            peak_docs <- vapply(spectra_chunk, function(sp) {
+              sp$peaks <- .reformat_gnps_peaks(sp$peaks_json)
+              sp$peaks_json <- NULL
+              jsonlite::toJSON(lapply(sp, function(x) x %||% NA),
+                               auto_unbox = TRUE)
+            }, character(1))
+            
+            dbcon$ms_peaks_coll$insert(peak_docs)
+            
+            total_inserted <- total_inserted + length(spectra_chunk)
+            message("Inserted ", total_inserted, " spectra")
+            
+            spectra_chunk <- list()
+          }
+        }
+      }
+      i <- i + 1
+    }
+    
+    buffer <- if (!is.null(start_idx))
+      charToRaw(paste(chars[start_idx:length(chars)], collapse = ""))
+    else raw()
+  }
+  
+  message("Total spectra imported: ", total_inserted)
+}
+
+#' Convert Spectra, data.frame, or GNPS JSON library and insert into MongoDB 
+#' backend
+#'
+#' @param dbcon A list of Mongo connections (must include ms_spectrum_coll
+#'        and ms_peaks_coll)
+#'        
+#' @param x Spectra object, data.frame, or JSON file path
+#' 
+#' @param n_spectra Maximum number of spectra to insert (only for JSON input)
+#' 
+#' @param chunk_size Number of spectra per chunk (only for JSON input)
 #'
 #' @return List with last spectrum_id_ inserted/updated
 #'
 #' @author Ahlam Mentag
 #'
 #' @noRd
-.createMsBackendMongoDb <- function(dbcon, x) {
-
+.createMsBackendMongoDb <- function(dbcon, x, n_spectra = NULL, chunk_size = 10) {
+  
   if (!is.list(dbcon) || !all(sapply(dbcon, inherits, "mongo")))
     stop("'dbcon' must be a list of mongo connection objects.")
-
   if (is.null(x))
-    stop("Input x must be a Spectra object or a data.frame.")
+    stop("Input x must be a Spectra object or a data.frame 
+           or GNPS JSON library.")
 
-  # Convert Spectra to data.frame if needed
-  if (inherits(x, "Spectra")) {
-    x <- spectraData(x, columns = union(spectraVariables(x), peaksVariables(x)))
+  # JSON file input
+  if (is.character(x) && file.exists(x) && grepl("\\.json$", x, 
+                                                 ignore.case = TRUE)) {
+    message("Detected GNPS JSON file, streaming into MongoDB...")
+    .add_gnps_json_to_mongo(
+      dbcon, x,
+      n_spectra = n_spectra,
+      chunk_size = chunk_size
+    )
+    return(invisible(TRUE))
   }
-
+  
+  ## Convert Spectra to data.frame if needed
+  if (inherits(x, "Spectra"))
+    x <- spectraData(x, columns = union(spectraVariables(x),
+                                        peaksVariables(x)))
   if (!(is.data.frame(x) | inherits(x, "DataFrame")))
     stop("Input x must be a data.frame or Spectra object.")
-
   x <- .reformat_mz_intensity(x)
-
-  # Normalize peaks ... MAYBE NOT NEEDED?
-  x$peaks <- lapply(x$peaks, function(p) {
-    list(
-      mz = as.numeric(p$mz),
-      intensity = as.numeric(p$intensity)
-    )
-  })
-
-  existing_ids <- character(0)
+  
+  last_index <- 1
   if (dbcon$ms_spectrum_coll$count('{}') > 0) {
     existing_ids <- dbcon$ms_spectrum_coll$distinct("spectrum_id_")
+    last_index <- max(as.integer(sub("SP", "", existing_ids))) + 1L
   }
-
-  n_existing <- length(existing_ids)
-  n_new <- nrow(x)
-
-  x$spectrum_id_ <- paste0("spec", seq_len(n_new) + n_existing)
-
+  x$spectrum_id_ <- sprintf(
+    paste0("SP", "%0", ceiling(log10(nrow(x) + last_index)), "d"),
+    seq(from = last_index, length.out = nrow(x)))
+  
   if (!is.data.frame(x)) x <- as.data.frame(x)
   .insert_new_backend_mongo(dbcon, x)
 }
+
 
 #' Small helper function to reformat eventually present "mz" and "intensity"
 #' columns in the format stored into the MongoDB.
@@ -517,3 +663,6 @@ connectMsBackendMongoDb <- function(db = "spectra_db",
       peak_fun = combined_peak_fun,
       spectraVariables = combined_vars)
 }
+
+
+
