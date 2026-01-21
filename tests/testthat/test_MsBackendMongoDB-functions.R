@@ -379,3 +379,35 @@ test_that(".reformat_mz_intensity works", {
     expect_equal(res$peaks[[2L]]$intensity, a$intensity[[2L]])
     expect_equal(res$peaks[[3L]]$intensity, a$intensity[[3L]])
 })
+
+test_that("GNPS JSON can be add to MongoDB (first 5 spectra only)  works", {
+
+  skip_if_not(file.exists("C:/Users/ament/Downloads/GNPS-2026-01-14/ALL_GNPS_cleaned.json"))
+
+  dbcon <- test_dbcon()
+  clear_db(dbcon)
+
+  # Import first 5 spectra from JSON
+  .createMsBackendMongoDb(
+    dbcon,
+    "C:/Users/ament/Downloads/GNPS-2026-01-14/ALL_GNPS_cleaned.json",
+    n_spectra = 5,
+    chunk_size = 2
+  )
+
+  # Check main spectrum collection
+  n_spectra_inserted <- dbcon$ms_spectrum_coll$count()
+  expect_gt(n_spectra_inserted, 0)
+  expect_lte(n_spectra_inserted, 5)
+
+  # Check peaks collection has entries
+  n_peaks <- dbcon$ms_peaks_coll$count()
+  expect_gt(n_peaks, 0)
+
+  # Check that spectrum_ids exist and match between collections
+  spectrum_ids <- dbcon$ms_spectrum_coll$distinct("spectrum_id_")
+  peaks_ids <- dbcon$ms_peaks_coll$distinct("spectrum_id_")
+  expect_true(all(spectrum_ids %in% peaks_ids))
+
+  clear_db(dbcon)
+})
