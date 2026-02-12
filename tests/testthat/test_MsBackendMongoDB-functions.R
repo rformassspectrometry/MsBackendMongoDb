@@ -371,37 +371,128 @@ test_that(".reformat_mz_intensity works", {
     expect_equal(res$peaks[[3L]]$intensity, a$intensity[[3L]])
 })
 
-test_that("GNPS JSON can be add to MongoDB (first 5 spectra only)  works", {
+
+library(testthat)
+library(mongolite)
+
+# Helper: Create a test MongoDB connection
+setup_test_db <- function() {
+  m <- mongo(collection = "gnps_test", db = "test_db", url = "mongodb://localhost")
+  m$drop() # Nettoyage avant le test
   
-  skip_if_not(file.exists("C:/Users/ament/Downloads/GNPS-2026-01-14/ALL_GNPS_cleaned.json"))
-  
-  dbcon <- test_dbcon()
-  clear_db(dbcon)
-  
-  # Import first 5 spectra from JSON
-  .createMsBackendMongoDb(
-    dbcon, 
-    "C:/Users/ament/Downloads/GNPS-2026-01-14/ALL_GNPS_cleaned.json",
-    n_spectra = 5,
-    chunk_size = 2
+  # Convertir la liste en data.frame
+  test_spectra <- data.frame(
+    spectrum_id = c("SP1", "SP2"),
+    precursor_mz = c(500.12, 600.34),
+    msLevel = c(2L, 2L),
+    peaks_json = c("[[123.4, 567], [124.5, 678]]", "[[125.6, 789], [126.7, 890]]"),
+    stringsAsFactors = FALSE
   )
   
-  # Check main spectrum collection
-  n_spectra_inserted <- dbcon$ms_spectrum_coll$count()
-  expect_gt(n_spectra_inserted, 0)
-  expect_lte(n_spectra_inserted, 5)
+  m$insert(test_spectra)
+  m
+}
 
-  # Check peaks collection has entries
-  n_peaks <- dbcon$ms_peaks_coll$count()
-  expect_gt(n_peaks, 0)
+# Helper: Clean up after test
+teardown_test_db <- function(m) {
+  m$drop()
+}
+
+test_that("gnps_fetch_spectra_data works as expected", {
+  m <- setup_test_db()
+  on.exit(teardown_test_db(m))
   
-  # Check that spectrum_ids exist and match between collections
-  spectrum_ids <- dbcon$ms_spectrum_coll$distinct("spectrum_id_")
-  peaks_ids <- dbcon$ms_peaks_coll$distinct("spectrum_id_")
-  expect_true(all(spectrum_ids %in% peaks_ids))
+  # Test 1: Fetch all spectra
+  spectra <- gnps_fetch_spectra_data(m)
+  expect_is(spectra, "data.frame")
+  expect_equal(nrow(spectra), 2)
+  expect_true(all(c("SP1", "SP2") %in% spectra$spectrum_id))
   
-  clear_db(dbcon)
+  # Test 2: Fetch with limit
+  spectra_limited <- gnps_fetch_spectra_data(m, limit = 1)
+  expect_equal(nrow(spectra_limited), 1)
+  
+  # Test 3: Fetch specific fields
+  spectra_fields <- gnps_fetch_spectra_data(m, fields = c("spectrum_id", "precursor_mz"))
+  expect_true(all(c("spectrum_id", "precursor_mz") %in% colnames(spectra_fields)))
+  expect_false("msLevel" %in% colnames(spectra_fields))
+  
+  # Test 4: Fetch with query
+  spectra_query <- gnps_fetch_spectra_data(m, query = list(msLevel = 2L))
+  expect_equal(nrow(spectra_query), 2)
 })
+
+test_that("gnps_fetch_peaks_data works correctly", {
+  m <- setup_test_db()
+  on.exit(teardown_test_db(m))
+  
+  # Test 1: Fetch with limit = 0
+  no_peaks <- gnps_fetch_peaks_data(m, limit = 0, id_field = "spectrum_id")
+  expect_is(no_peaks, "list")
+  expect_equal(length(no_peaks), 0)
+  
+  # Test 2: Fetch with NULL query and limit
+  all_peaks <- gnps_fetch_peaks_data(m, query = NULL, id_field = "spectrum_id")
+  expect_is(all_peaks, "list")
+  expect_equal(length(all_peaks), 2)  # On s'attend à 2 spectres, pas 3
+  
+  # Test 3: Fetch with limit = 2 (more than 0)
+  limited_peaks <- gnps_fetch_peaks_data(m, limit = 2, id_field = "spectrum_id")
+  expect_is(limited_peaks, "list")
+  expect_equal(length(limited_peaks), 2)
+  
+  # Test 4: Check the content of the limited peaks
+  expect_true(all(c("SP1", "SP2") %in% names(limited_peaks)))
+  expect_equal(limited_peaks[["SP1"]][1, "mz"], 123.4, check.attributes = FALSE)
+  expect_equal(limited_peaks[["SP1"]][1, "intensity"], 567, check.attributes = FALSE)
+  
+  # Test 5: Check the content of the second spectrum
+  expect_equal(limited_peaks[["SP2"]][1, "mz"], 125.6, check.attributes = FALSE)
+  expect_equal(limited_peaks[["SP2"]][1, "intensity"], 789, check.attributes = FALSE)
+})
+
+
+
+
+#test locally
+library(mongolite)
+m <- mongo(collection = "gnps", db = "BD", url = "mongodb://localhost")
+
+# return all the fields except the peqks
+spectra <- gnps_fetch_spectra_data(m)
+head(spectra)
+
+# Return just the given fields
+spectra_subset <- gnps_fetch_spectra_data(m, fields = c("spectrum_id_", "Precursor_MZ"))
+head(spectra_subset)
+
+
+#test peaks gnps
+
+
+library(mongolite)
+source("C:/Users/ament/Desktop/Github/MsBackendMongoDb/R/MsBackendMongoDB-functions.R")
+
+# Connection to the local database
+m <- mongo(collection = "gnps", db = "BD", url = "mongodb://localhost")
+
+# return the 5 first peaks of the spectrum
+peaks <- gnps_fetch_peaks_data(m, limit = 5, id_field = "spectrum_id")
+print("IDs des spectres récupérés :")
+print(names(peaks))
+
+if (length(peaks) > 0) {
+  first_peak_matrix <- peaks[[1]]
+  print("pirst peaks of the first spectrum :")
+  print(head(first_peak_matrix))
+}
+
+specific_peaks <- gnps_fetch_peaks_data(m, query = list(spectrum_id = "CCMSLIB00000001547"), id_field = "spectrum_id")
+print("Peaks of a given spectrum :")
+print(names(specific_peaks))
+if (length(specific_peaks) > 0) {
+  print(head(specific_peaks[[1]]))
+}
 
 
 
