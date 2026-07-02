@@ -93,7 +93,7 @@ document.addEventListener("DOMContentLoaded", function() {
 </script><div class="section level2">
 <h2 id="introduction">Introduction<a class="anchor" aria-label="anchor" href="#introduction"></a>
 </h2>
-<p>The <em><a href="https://bioconductor.org/packages/3.23/Spectra" class="external-link">Spectra</a></em>
+<p>The <em><a href="https://bioconductor.org/packages/3.24/Spectra" class="external-link">Spectra</a></em>
 Bioconductor package provides a flexible and expandable infrastructure
 for handling and processing mass spectrometry (MS) data in R. The
 package supports interchangeable use of different <em>backends</em> that
@@ -139,14 +139,17 @@ representing the MS data from these two data files.</p>
 <pre><code><span><span class="co">## The following objects are masked from 'package:stats':</span></span>
 <span><span class="co">## </span></span>
 <span><span class="co">##     IQR, mad, sd, var, xtabs</span></span></code></pre>
+<pre><code><span><span class="co">## The following object is masked from 'package:utils':</span></span>
+<span><span class="co">## </span></span>
+<span><span class="co">##     data</span></span></code></pre>
 <pre><code><span><span class="co">## The following objects are masked from 'package:base':</span></span>
 <span><span class="co">## </span></span>
 <span><span class="co">##     anyDuplicated, aperm, append, as.data.frame, basename, cbind,</span></span>
 <span><span class="co">##     colnames, dirname, do.call, duplicated, eval, evalq, Filter, Find,</span></span>
 <span><span class="co">##     get, grep, grepl, is.unsorted, lapply, Map, mapply, match, mget,</span></span>
 <span><span class="co">##     order, paste, pmax, pmax.int, pmin, pmin.int, Position, rank,</span></span>
-<span><span class="co">##     rbind, Reduce, rownames, sapply, saveRDS, table, tapply, unique,</span></span>
-<span><span class="co">##     unsplit, which.max, which.min</span></span></code></pre>
+<span><span class="co">##     rbind, Reduce, rownames, sapply, saveRDS, scale, sequence, table,</span></span>
+<span><span class="co">##     tapply, transform, unique, unsplit, which.max, which.min</span></span></code></pre>
 <pre><code><span><span class="co">## </span></span>
 <span><span class="co">## Attaching package: 'S4Vectors'</span></span></code></pre>
 <pre><code><span><span class="co">## The following object is masked from 'package:utils':</span></span>
@@ -156,9 +159,15 @@ representing the MS data from these two data files.</p>
 <span><span class="co">## </span></span>
 <span><span class="co">##     expand.grid, I, unname</span></span></code></pre>
 <pre><code><span><span class="co">## Loading required package: BiocParallel</span></span></code></pre>
-<div class="sourceCode" id="cb16"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va">msdata</span><span class="op">)</span></span>
-<span><span class="va">fls</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/list.files.html" class="external-link">dir</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/system.file.html" class="external-link">system.file</a></span><span class="op">(</span><span class="st">"sciex"</span>, package <span class="op">=</span> <span class="st">"msdata"</span><span class="op">)</span>, full.names <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span></span>
+<div class="sourceCode" id="cb17"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va">msdata</span><span class="op">)</span></span></code></pre></div>
+<pre><code><span><span class="co">## </span></span>
+<span><span class="co">##  IMPORTANT: msdata will be deprecated and replaced by the new</span></span>
+<span><span class="co">##  MsDataHub package -- see https://bioconductor.org/packages/MsDataHub.</span></span>
+<span><span class="co">##  Please open an issue at https://github.com/rformassspectrometry/MsDataHub/issues</span></span>
+<span><span class="co">##  to inform us of any data from msdata that would need to be moved to MsDataHub.</span></span></code></pre>
+<div class="sourceCode" id="cb19"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">fls</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/list.files.html" class="external-link">dir</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/system.file.html" class="external-link">system.file</a></span><span class="op">(</span><span class="st">"sciex"</span>, package <span class="op">=</span> <span class="st">"msdata"</span><span class="op">)</span>, full.names <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span></span>
 <span></span>
 <span><span class="va">sp</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/pkg/Spectra/man/Spectra.html" class="external-link">Spectra</a></span><span class="op">(</span><span class="va">fls</span><span class="op">)</span></span>
 <span><span class="va">sp</span></span></code></pre></div>
@@ -191,7 +200,7 @@ The database will be created automatically if it does not already exist.
 By setting parameter <code>clean = TRUE</code> we ensure that any
 previous database with the same name as defined with <code>db</code>
 gets first erased. Thus, this parameter should be used with caution!</p>
-<div class="sourceCode" id="cb18"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb21"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="co">#' connect to a MongoDB database</span></span>
 <span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://github.com/RforMassSpectrometry/MsBackendMongoDb" class="external-link">MsBackendMongoDb</a></span><span class="op">)</span></span>
 <span><span class="va">mcon</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/connectMsBackendMongoDb.html">connectMsBackendMongoDb</a></span><span class="op">(</span></span>
@@ -200,13 +209,13 @@ gets first erased. Thus, this parameter should be used with caution!</p>
 <span>    clean <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span></span></code></pre></div>
 <p>We can next use the <code><a href="https://rdrr.io/pkg/ProtGenerics/man/backendInitialize.html" class="external-link">setBackend()</a></code> function to transfer
 the data from the original mzML files to the MongoDB database.</p>
-<div class="sourceCode" id="cb19"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb22"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">sp_mng</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/pkg/ProtGenerics/man/backendInitialize.html" class="external-link">setBackend</a></span><span class="op">(</span><span class="va">sp</span>, backend <span class="op">=</span> <span class="fu"><a href="../reference/MsBackendMongoDb.html">MsBackendMongoDb</a></span><span class="op">(</span><span class="op">)</span>, dbcon <span class="op">=</span> <span class="va">mcon</span><span class="op">)</span></span></code></pre></div>
 <p>The memory requirements for a <code>Spectra</code> object with a
 <code>MsBackendMongoDb</code> are very low since only the IDs of the
 spectra are kept in the main memory while all data is stored in the
 database:</p>
-<div class="sourceCode" id="cb20"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb23"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/base/print.html" class="external-link">print</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/utils/object.size.html" class="external-link">object.size</a></span><span class="op">(</span><span class="va">sp_mng</span><span class="op">)</span>, units <span class="op">=</span> <span class="st">"MB"</span><span class="op">)</span></span></code></pre></div>
 <pre><code><span><span class="co">## 0.3 Mb</span></span></code></pre>
 <p>Due to the design of the <code>Spectra</code> class, data can be
@@ -215,14 +224,14 @@ retrieved irrespectively of where or how the data is stored. For
 backend, the data is extracted <em>on-the-fly</em> from the MongoDB
 database. Below we get the retention time values from the object and
 show the first 6 values.</p>
-<div class="sourceCode" id="cb22"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb25"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/pkg/ProtGenerics/man/protgenerics.html" class="external-link">rtime</a></span><span class="op">(</span><span class="va">sp_mng</span><span class="op">)</span> <span class="op">|&gt;</span></span>
 <span>    <span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="op">)</span></span></code></pre></div>
 <pre><code><span><span class="co">## [1] 0.280 0.559 0.838 1.117 1.396 1.675</span></span></code></pre>
 <p>Similarly, we can extract the <em>m/z</em> values of all spectra from
 the data set. Also in this case, the data is extracted from the
 database.</p>
-<div class="sourceCode" id="cb24"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb27"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/pkg/ProtGenerics/man/protgenerics.html" class="external-link">mz</a></span><span class="op">(</span><span class="va">sp_mng</span><span class="op">)</span></span></code></pre></div>
 <pre><code><span><span class="co">## NumericList of length 1862</span></span>
 <span><span class="co">## [["SP0001"]] 105.043454833354 105.044900379521 ... 133.983660012089</span></span>
@@ -240,7 +249,7 @@ database.</p>
 <p>Subset operations will only subset the spectra IDs in the backend,
 but not affect the data stored in the MongoDB. Below we subset the
 <code>Spectra</code> object to spectra with index 13, 5, 20 and 21:</p>
-<div class="sourceCode" id="cb26"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb29"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">sp_mng</span> <span class="op">&lt;-</span> <span class="va">sp_mng</span><span class="op">[</span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">13</span>, <span class="fl">5</span>, <span class="fl">20</span>, <span class="fl">21</span><span class="op">)</span><span class="op">]</span></span>
 <span><span class="va">sp_mng</span></span></code></pre></div>
 <pre><code><span><span class="co">## MSn data (Spectra) with 4 spectra in a MsBackendMongoDb backend:</span></span>
@@ -254,17 +263,17 @@ but not affect the data stored in the MongoDB. Below we subset the
 <span><span class="co">##  Use  'spectraVariables' to list all of them.</span></span>
 <span><span class="co">## MongoDb collections:  ms_spectrum_coll, ms_peaks_coll </span></span>
 <span><span class="co">## Processing:</span></span>
-<span><span class="co">##  Switch backend from MsBackendMzR to MsBackendMongoDb [Wed Jan  7 12:14:39 2026]</span></span></code></pre>
+<span><span class="co">##  Switch backend from MsBackendMzR to MsBackendMongoDb [Thu Jul  2 13:17:23 2026]</span></span></code></pre>
 <p>Any operation on this subset <code>Spectra</code> object will only
 retrieve data from the 4 selected spectra.</p>
-<div class="sourceCode" id="cb28"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb31"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/pkg/ProtGenerics/man/protgenerics.html" class="external-link">rtime</a></span><span class="op">(</span><span class="va">sp_mng</span><span class="op">)</span></span></code></pre></div>
 <pre><code><span><span class="co">## [1] 3.628 1.396 5.581 5.860</span></span></code></pre>
 <p>As mentioned above, the MongoDB database still contains the full
 data. We can thus use the <code><a href="https://rdrr.io/pkg/Spectra/man/addProcessing.html" class="external-link">reset()</a></code> function to
 <em>restore</em> the <code>Spectra</code> object to its original
 state:</p>
-<div class="sourceCode" id="cb30"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb33"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">sp_mng</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/pkg/Spectra/man/addProcessing.html" class="external-link">reset</a></span><span class="op">(</span><span class="va">sp_mng</span><span class="op">)</span></span>
 <span><span class="va">sp_mng</span></span></code></pre></div>
 <pre><code><span><span class="co">## MSn data (Spectra) with 1862 spectra in a MsBackendMongoDb backend:</span></span>
@@ -285,30 +294,30 @@ state:</p>
 <span><span class="co">##  Use  'spectraVariables' to list all of them.</span></span>
 <span><span class="co">## MongoDb collections:  ms_spectrum_coll, ms_peaks_coll </span></span>
 <span><span class="co">## Processing:</span></span>
-<span><span class="co">##  Switch backend from MsBackendMzR to MsBackendMongoDb [Wed Jan  7 12:14:39 2026]</span></span>
-<span><span class="co">##  Reset object. [Wed Jan  7 12:14:42 2026]</span></span></code></pre>
+<span><span class="co">##  Switch backend from MsBackendMzR to MsBackendMongoDb [Thu Jul  2 13:17:23 2026]</span></span>
+<span><span class="co">##  Reset object. [Thu Jul  2 13:17:26 2026]</span></span></code></pre>
 <p>Finally, the data available from the <code>Spectra</code> object
 using the <code>MsBackendMongoDb</code> is identical to the original
 <code>Spectra</code> object with the data from the original mzML files.
 We compare below the retention times reported by both
 <code>Spectra</code> objects.</p>
-<div class="sourceCode" id="cb32"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb35"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/base/all.equal.html" class="external-link">all.equal</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/pkg/ProtGenerics/man/protgenerics.html" class="external-link">rtime</a></span><span class="op">(</span><span class="va">sp</span><span class="op">)</span>, <span class="fu"><a href="https://rdrr.io/pkg/ProtGenerics/man/protgenerics.html" class="external-link">rtime</a></span><span class="op">(</span><span class="va">sp_mng</span><span class="op">)</span><span class="op">)</span></span></code></pre></div>
 <pre><code><span><span class="co">## [1] TRUE</span></span></code></pre>
 <p>Also the <em>m/z</em> values are identical - with the exception of
 the names of the returned <code>list</code>.</p>
-<div class="sourceCode" id="cb34"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/base/all.equal.html" class="external-link">all.equal</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/pkg/ProtGenerics/man/protgenerics.html" class="external-link">mz</a></span><span class="op">(</span><span class="va">sp</span><span class="op">)</span>, <span class="fu"><a href="https://rdrr.io/r/base/unname.html" class="external-link">unname</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/pkg/ProtGenerics/man/protgenerics.html" class="external-link">mz</a></span><span class="op">(</span><span class="va">sp_mng</span><span class="op">)</span><span class="op">)</span><span class="op">)</span></span></code></pre></div>
+<div class="sourceCode" id="cb37"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/base/all.equal.html" class="external-link">all.equal</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/pkg/ProtGenerics/man/protgenerics.html" class="external-link">mz</a></span><span class="op">(</span><span class="va">sp</span><span class="op">)</span>, <span class="fu"><a href="https://rdrr.io/pkg/S4Vectors/man/Vector-class.html" class="external-link">unname</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/pkg/ProtGenerics/man/protgenerics.html" class="external-link">mz</a></span><span class="op">(</span><span class="va">sp_mng</span><span class="op">)</span><span class="op">)</span><span class="op">)</span></span></code></pre></div>
 <pre><code><span><span class="co">## [1] TRUE</span></span></code></pre>
 </div>
 <div class="section level2">
 <h2 id="session-information">Session information<a class="anchor" aria-label="anchor" href="#session-information"></a>
 </h2>
-<div class="sourceCode" id="cb36"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb39"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/utils/sessionInfo.html" class="external-link">sessionInfo</a></span><span class="op">(</span><span class="op">)</span></span></code></pre></div>
-<pre><code><span><span class="co">## R Under development (unstable) (2026-01-03 r89269)</span></span>
+<pre><code><span><span class="co">## R version 4.6.0 (2026-04-24)</span></span>
 <span><span class="co">## Platform: x86_64-pc-linux-gnu</span></span>
-<span><span class="co">## Running under: Ubuntu 24.04.3 LTS</span></span>
+<span><span class="co">## Running under: Ubuntu 24.04.4 LTS</span></span>
 <span><span class="co">## </span></span>
 <span><span class="co">## Matrix products: default</span></span>
 <span><span class="co">## BLAS:   /usr/lib/x86_64-linux-gnu/openblas-pthread/libblas.so.3 </span></span>
@@ -330,27 +339,27 @@ the names of the returned <code>list</code>.</p>
 <span><span class="co">## [8] base     </span></span>
 <span><span class="co">## </span></span>
 <span><span class="co">## other attached packages:</span></span>
-<span><span class="co">## [1] MsBackendMongoDb_0.97.3 msdata_0.51.0           Spectra_1.21.1         </span></span>
-<span><span class="co">## [4] BiocParallel_1.45.0     S4Vectors_0.49.0        BiocGenerics_0.57.0    </span></span>
-<span><span class="co">## [7] generics_0.1.4          BiocStyle_2.39.0       </span></span>
+<span><span class="co">## [1] MsBackendMongoDb_0.97.3 msdata_0.53.0           Spectra_1.23.3         </span></span>
+<span><span class="co">## [4] BiocParallel_1.47.0     S4Vectors_0.51.5        BiocGenerics_0.59.8    </span></span>
+<span><span class="co">## [7] generics_0.1.4          BiocStyle_2.41.0       </span></span>
 <span><span class="co">## </span></span>
 <span><span class="co">## loaded via a namespace (and not attached):</span></span>
 <span><span class="co">##  [1] jsonlite_2.0.0         compiler_4.6.0         BiocManager_1.30.27   </span></span>
-<span><span class="co">##  [4] Rcpp_1.1.0.8.1         Biobase_2.71.0         parallel_4.6.0        </span></span>
-<span><span class="co">##  [7] cluster_2.1.8.1        jquerylib_0.1.4        systemfonts_1.3.1     </span></span>
-<span><span class="co">## [10] IRanges_2.45.0         textshaping_1.0.4      yaml_2.3.12           </span></span>
-<span><span class="co">## [13] fastmap_1.2.0          R6_2.6.1               ProtGenerics_1.43.0   </span></span>
+<span><span class="co">##  [4] Rcpp_1.1.1-1.1         Biobase_2.73.1         parallel_4.6.0        </span></span>
+<span><span class="co">##  [7] cluster_2.1.8.2        jquerylib_0.1.4        systemfonts_1.3.2     </span></span>
+<span><span class="co">## [10] IRanges_2.47.2         textshaping_1.0.5      yaml_2.3.12           </span></span>
+<span><span class="co">## [13] fastmap_1.2.0          R6_2.6.1               ProtGenerics_1.45.0   </span></span>
 <span><span class="co">## [16] knitr_1.51             htmlwidgets_1.6.4      MASS_7.3-65           </span></span>
-<span><span class="co">## [19] bookdown_0.46          desc_1.4.3             openssl_2.3.4         </span></span>
-<span><span class="co">## [22] DBI_1.2.3              bslib_0.9.0            rlang_1.1.6           </span></span>
-<span><span class="co">## [25] fastmatch_1.1-6        cachem_1.1.0           xfun_0.55             </span></span>
-<span><span class="co">## [28] fs_1.6.6               MsCoreUtils_1.23.2     sass_0.4.10           </span></span>
-<span><span class="co">## [31] otel_0.2.0             cli_3.6.5              pkgdown_2.2.0.9000    </span></span>
-<span><span class="co">## [34] ncdf4_1.24             digest_0.6.39          mzR_2.45.0            </span></span>
-<span><span class="co">## [37] askpass_1.2.1          MetaboCoreUtils_1.19.1 lifecycle_1.0.4       </span></span>
-<span><span class="co">## [40] clue_0.3-66            evaluate_1.0.5         codetools_0.2-20      </span></span>
-<span><span class="co">## [43] ragg_1.5.0             mongolite_4.0.0        rmarkdown_2.30        </span></span>
-<span><span class="co">## [46] tools_4.6.0            htmltools_0.5.9</span></span></code></pre>
+<span><span class="co">## [19] bookdown_0.47          desc_1.4.3             openssl_2.4.2         </span></span>
+<span><span class="co">## [22] DBI_1.3.0              bslib_0.11.0           rlang_1.2.0           </span></span>
+<span><span class="co">## [25] fastmatch_1.1-8        cachem_1.1.0           xfun_0.59             </span></span>
+<span><span class="co">## [28] fs_2.1.0               MsCoreUtils_1.25.4     sass_0.4.10           </span></span>
+<span><span class="co">## [31] otel_0.2.0             cli_3.6.6              pkgdown_2.2.0.9000    </span></span>
+<span><span class="co">## [34] ncdf4_1.24             digest_0.6.39          mzR_2.47.0            </span></span>
+<span><span class="co">## [37] askpass_1.2.1          MetaboCoreUtils_1.21.1 lifecycle_1.0.5       </span></span>
+<span><span class="co">## [40] clue_0.3-68            data.table_1.18.4      evaluate_1.0.5        </span></span>
+<span><span class="co">## [43] codetools_0.2-20       ragg_1.5.2             mongolite_4.0.0       </span></span>
+<span><span class="co">## [46] rmarkdown_2.31         tools_4.6.0            htmltools_0.5.9</span></span></code></pre>
 </div>
   </div>
 
