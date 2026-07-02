@@ -476,7 +476,7 @@ connectMsBackendMongoDb <- function(db = "spectra_db",
 #'
 #' @noRd
 .add_gnps_json_to_mongo <- function(dbcon, json_file, n_spectra = Inf,
-                                       chunk_size = 100) {
+                                    chunk_size = 100, raw_n = 1e6) {
 
   con <- file(json_file, open = "rb")
   on.exit(close(con))
@@ -485,10 +485,11 @@ connectMsBackendMongoDb <- function(db = "spectra_db",
   spectra_chunk <- list()
   brace_count <- 0L
   total_inserted <- 0L
+  sp_count <- 0L
 
   repeat {
 
-    raw_chunk <- readBin(con, what = "raw", n = 1e6)
+    raw_chunk <- readBin(con, what = "raw", n = raw_n)
     if (length(raw_chunk) == 0 || total_inserted >= n_spectra)
       break
 
@@ -511,13 +512,14 @@ connectMsBackendMongoDb <- function(db = "spectra_db",
 
         if (brace_count == 0 && !is.null(start_idx)) {
 
-          obj_txt <- paste(chars[start_idx:i], collapse = "")
+          obj_txt <- paste0(chars[start_idx:i], collapse = "")
           obj_txt <- sub(",$", "", obj_txt)
           sp <- jsonlite::fromJSON(obj_txt, simplifyVector = FALSE)
 
-          if (is.null(sp$spectrum_id))
-            sp$spectrum_id <- paste0("SP", sample(1e6, 1))
-
+          if (is.null(sp$spectrum_id)) {
+            sp_count <- sp_count + 1L
+            sp$spectrum_id <- paste0("SP", sp_count)
+          }
           spectra_chunk[[length(spectra_chunk) + 1]] <- sp
           start_idx <- NULL
 
@@ -584,47 +586,43 @@ connectMsBackendMongoDb <- function(db = "spectra_db",
 #' @author Ahlam Mentag
 #'
 #' @noRd
-.createMsBackendMongoDb <- function(dbcon, x, n_spectra = NULL, chunk_size = 10) {
-
-  if (!is.list(dbcon) || !all(sapply(dbcon, inherits, "mongo")))
-    stop("'dbcon' must be a list of mongo connection objects.")
-  if (is.null(x))
-    stop("Input x must be a Spectra object or a data.frame
+.createMsBackendMongoDb <- function(dbcon, x, n_spectra = NULL,
+                                    chunk_size = 10) {
+    if (!is.list(dbcon) || !all(sapply(dbcon, inherits, "mongo")))
+        stop("'dbcon' must be a list of mongo connection objects.")
+    if (is.null(x))
+        stop("Input x must be a Spectra object or a data.frame
            or GNPS JSON library.")
 
-  # JSON file input
-  if (is.character(x) && file.exists(x) && grepl("\\.json$", x,
-                                                 ignore.case = TRUE)) {
-    message("Detected GNPS JSON file, streaming into MongoDB...")
-    .add_gnps_json_to_mongo(
-      dbcon, x,
-      n_spectra = n_spectra,
-      chunk_size = chunk_size
-    )
-    return(invisible(TRUE))
-  }
+    ## JSON file input
+    if (is.character(x) && file.exists(x) && grepl("\\.json$", x,
+                                                   ignore.case = TRUE)) {
+        message("Detected GNPS JSON file, streaming into MongoDB...")
+        .add_gnps_json_to_mongo(dbcon, x, n_spectra = n_spectra,
+                                chunk_size = chunk_size)
+        return(invisible(TRUE))
+    }
 
-  ## Convert Spectra to data.frame if needed
-  if (inherits(x, "Spectra"))
-    x <- spectraData(x, columns = union(spectraVariables(x),
-                                        peaksVariables(x)))
-  if (!(is.data.frame(x) | inherits(x, "DataFrame")))
-    stop("Input x must be a data.frame or Spectra object.")
-  x <- .reformat_mz_intensity(x)
+    ## Convert Spectra to data.frame if needed
+    if (inherits(x, "Spectra"))
+        x <- spectraData(x, columns = union(spectraVariables(x),
+                                            peaksVariables(x)))
+    if (!(is.data.frame(x) | inherits(x, "DataFrame")))
+        stop("Input x must be a data.frame or Spectra object.")
+    x <- .reformat_mz_intensity(x)
 
-  last_index <- 1
-  if (dbcon$ms_spectrum_coll$count('{}') > 0) {
-    existing_ids <- dbcon$ms_spectrum_coll$distinct("spectrum_id_")
-    last_index <- max(as.integer(sub("SP", "", existing_ids))) + 1L
-  }
-  x$spectrum_id_ <- sprintf(
-    paste0("SP", "%0", ceiling(log10(nrow(x) + last_index)), "d"),
-    seq(from = last_index, length.out = nrow(x)))
+    last_index <- 1
+    if (dbcon$ms_spectrum_coll$count('{}') > 0) {
+        existing_ids <- dbcon$ms_spectrum_coll$distinct("spectrum_id_")
+        last_index <- max(as.integer(sub("SP", "", existing_ids))) + 1L
+    }
+    x$spectrum_id_ <- sprintf(
+        paste0("SP", "%0", ceiling(log10(nrow(x) + last_index)), "d"),
+        seq(from = last_index, length.out = nrow(x)))
 
-  if (!is.data.frame(x)) x <- as.data.frame(x)
-  .insert_new_backend_mongo(dbcon, x)
+    if (!is.data.frame(x)) x <- as.data.frame(x)
+    .insert_new_backend_mongo(dbcon, x)
 }
-
 
 #' Small helper function to reformat eventually present "mz" and "intensity"
 #' columns in the format stored into the MongoDB.
