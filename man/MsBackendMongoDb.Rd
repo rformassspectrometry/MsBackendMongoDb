@@ -170,6 +170,43 @@ Internally, the backend stores:
 Data access functions use \code{peak_fun} to fetch peaks on demand.
 }
 
+\examples{
+
+## Start a MongoDB for the example; this requires the *mongod* binary of
+## a MongoDB server installation to be present in the System's path.
+## We use a specific temporary folder for the database that we can remove
+## later safely
+d <- file.path(tempdir(), "test_example")
+start_mongodb()
+
+## Loading test data files from MsDataHub
+library(Spectra)
+library(MsDataHub)
+fls <- c(X20171016_POOL_POS_1_105.134.mzML(),
+         X20171016_POOL_POS_3_105.134.mzML())
+
+## Load the data as a `Spectra` object
+
+s <- Spectra(fls)
+
+## Connect to the MongoDB database
+mcon <- connectMsBackendMongoDb(
+   db = "ms_backend_mongodb",
+   url = "mongodb://localhost:27017",
+   clean = TRUE)
+
+## Change the backend of the `Spectra` object to `MsBackendMongoDb`: store
+## all MS data into the MongoDB
+mng <- setBackend(s, backend = MsBackendMongoDb(), dbcon = mcon)
+mng
+
+## Get the *m/z* values from the data
+mz(mng)
+
+## Stopping the MongoDB and removing the directory
+stop_mongodb()
+unlink(d, recursive = TRUE)
+}
 \author{
 Ahlam Mentag
 }

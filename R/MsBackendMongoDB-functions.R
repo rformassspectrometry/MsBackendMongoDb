@@ -540,3 +540,56 @@ connectMsBackendMongoDb <- function(db = "spectra_db",
         peak_fun = combined_peak_fun,
         spectraVariables = combined_vars)
 }
+
+#' @title Start and stop MongoDB instances
+#'
+#' @description
+#'
+#' The `start_mongodb()` and `stop_mongodb()` functions start and stop a
+#' MongoDB database using the *mongod* system call. These functions require
+#' an installation of the MongoDB server and the *mongod* binary to be present
+#' in the System path.
+#'
+#' @param cmd `character(1)` with the binary to start or stop the MongoDB.
+#'
+#' @param dbpath `character(1)` with the location of the MongoDB database.
+#'     Defaults to `file.path(tempdir(), "mongo")` hence using a temporary
+#'     folder for the data.
+#'
+#' @param logpath `character(1)` with the location of the log file for the
+#'     database. Defaults to `file.path(tempdir(), "mongo.log")`.
+#'
+#' @return `start_mongodb()` and `stop_mongodb()` don't return any value, but
+#'     throw an error if the `system2` call did not return `0`.
+#'
+#' @export
+#'
+#' @examples
+#'
+#' ## Start a MongoDB service with the database location in *test_mongo* in
+#' ## the System's temporary folder.
+#' start_mongodb(dbpath = file.path(tempdir(), "test_mongo"))
+#'
+#' ## Stop the MongoDB
+#' stop_mongodb(dbpath = file.path(tempdir(), "test_mongo"))
+#'
+#' ## Remove the database
+#' unlink(file.path(tempdir(), "test_mongo"), recursive = TRUE)
+start_mongodb <- function(cmd = "mongod",dbpath = file.path(tempdir(), "mongo"),
+                         logpath = file.path(tempdir(), "mongo.log")) {
+    if (!dir.exists(dbpath))
+        dir.create(dbpath, recursive = TRUE, showWarnings = FALSE)
+    res <- system2(cmd, c("--fork", "--dbpath", dbpath, "--logpath", logpath))
+    if (res != 0)
+        stop("Error starting MongoDB. Error code: ", res)
+}
+
+#' @rdname start_mongodb
+#'
+#' @export
+stop_mongodb <- function(cmd = "mongod",
+                         dbpath = file.path(tempdir(), "mongo")) {
+    res <- system2(cmd, c("--dbpath", dbpath, "--shutdown"))
+    if (res != 0)
+        stop("Error stopping MongoDB. Error code: ", res)
+}

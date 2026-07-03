@@ -2,6 +2,8 @@
 
 export(MsBackendMongoDb)
 export(connectMsBackendMongoDb)
+export(start_mongodb)
+export(stop_mongodb)
 exportClasses(MsBackendMongoDb)
 exportMethods("[")
 exportMethods("intensity<-")

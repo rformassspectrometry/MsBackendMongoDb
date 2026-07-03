@@ -1,5 +1,12 @@
 ## MsBackendMongoDb 0.97
 
+## Changes in version 0.97.4
+
+- Load test data from *MsDataHub*.
+- Add functions to start and stop a local MongoDB server (requires the *mongod*
+  binary to be available).
+- Add examples.
+
 ## Changes in version 0.97.3
 
 - `mz()` and `intensity()` to return uncompressed `NumericList`.

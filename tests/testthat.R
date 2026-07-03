@@ -3,10 +3,10 @@ library(testthat)
 library(MsBackendMongoDb)
 library(mongolite)
 library(Spectra)
+library(MsDataHub)
 
-#' [TODO] we can run the unit tests only if a mongodb server is running on the
-#' system. We should check how to best tackle that. Maybe looking at the unit
-#' tests of the mongolite package?
+dbd <- file.path(tempdir(), "test_mongo")
+start_mongodb(dbpath = dbd)
 
 test_dbcon <- function() {
   db_name <- "test_spectra_db"
@@ -14,7 +14,6 @@ test_dbcon <- function() {
       ms_spectrum_coll = mongo(collection = "ms_spectrum_coll",
                                db = db_name,
                                url = "mongodb://127.0.0.1"),
-
       ms_peaks_coll = mongo(collection = "ms_peaks_coll",
                             db = db_name,
                             url = "mongodb://127.0.0.1")
@@ -32,8 +31,8 @@ test_check("MsBackendMongoDb")
 test_suite <- system.file("test_backends", "test_MsBackend",
                           package = "Spectra")
 
-library(msdata)
-fls <- dir(system.file("sciex", package = "msdata"), full.names = TRUE)
+fls <- c(X20171016_POOL_POS_1_105.134.mzML(),
+         X20171016_POOL_POS_3_105.134.mzML())
 sp <- Spectra(fls)
 mcon <- connectMsBackendMongoDb(
     db = "test_spectra_db",
@@ -42,3 +41,6 @@ mcon <- connectMsBackendMongoDb(
 
 be <- setBackend(sp[1:200], backend = MsBackendMongoDb(), dbcon = mcon)@backend
 test_dir(test_suite, stop_on_failure = TRUE)
+
+stop_mongodb(dbpath = dbd)
+unlink(dbd, recursive = TRUE)

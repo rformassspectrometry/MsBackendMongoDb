@@ -4,7 +4,7 @@
 [![R-CMD-check-bioc](https://github.com/RforMassSpectrometry/MsBackendMongoDb/workflows/R-CMD-check-bioc/badge.svg)](https://github.com/RforMassSpectrometry/MsBackendMongoDb/actions?query=workflow%3AR-CMD-check-bioc)
 [![codecov](https://codecov.io/gh/rformassspectrometry/MsBackendMongoDb/graph/badge.svg?token=O6Cpv5YOSU)](https://codecov.io/gh/rformassspectrometry/MsBackendMongoDb)
 [![:name status badge](https://rformassspectrometry.r-universe.dev/badges/:name)](https://rformassspectrometry.r-universe.dev/)
-[![license](https://img.shields.io/badge/license-Artistic--2.0-brightgreen.svg)](https://opensource.org/licenses/Artistic-2.0)
+[![license](https://img.shields.io/badge/license-GPL--3.0-brightgreen.svg)](https://opensource.org/license/gpl-3.0)
 
 ## Welcome to *MsBackendMongoDb*!
 
@@ -40,3 +40,11 @@ vignette](https://rformassspectrometry.github.io/RforMassSpectrometry/articles/R
 We follow the [**RforMassSpectrometry Code of
 Conduct**](https://rformassspectrometry.github.io/RforMassSpectrometry/articles/RforMassSpectrometry.html#code-of-conduct)
 to maintain an inclusive and respectful community.
+
+## License
+
+This package is licensed under the **GPL 3.0 License**:
+📄 [https://opensource.org/license/gpl-3.0](https://opensource.org/license/gpl-3.0)
+
+Documentation (manuals, vignettes) is licensed under **CC BY-NC-SA 4.0**:
+📄 [https://creativecommons.org/licenses/by-nc-sa/4.0/](https://creativecommons.org/licenses/by-nc-sa/4.0/)
