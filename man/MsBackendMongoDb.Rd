@@ -18,6 +18,7 @@
 \alias{[,MsBackendMongoDb-method}
 \alias{extractByIndex,MsBackendMongoDb-method}
 \alias{show,MsBackendMongoDb-method}
+\alias{[,MsBackendMongoDb,ANY,ANY,ANY-method}
 \alias{extractByIndex,MsBackendMongoDb,ANY-method}
 \title{\code{Spectra} MS backend storing data in a MongoDb database}
 \usage{
@@ -45,7 +46,7 @@
 
 \S4method{spectraData}{MsBackendMongoDb}(object, columns = spectraVariables(object))
 
-\S4method{[}{MsBackendMongoDb}(x, i, j, ..., drop = FALSE)
+\S4method{[}{MsBackendMongoDb,ANY,ANY,ANY}(x, i, j, ..., drop = FALSE)
 
 \S4method{extractByIndex}{MsBackendMongoDb,ANY}(object, i)
 

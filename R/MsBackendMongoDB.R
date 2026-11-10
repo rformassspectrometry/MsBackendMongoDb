@@ -158,8 +158,13 @@ setClass(
 setValidity("MsBackendMongoDb", function(object) {
 
   # Check dbcon
-  msg <- .valid_mongocon(object@dbcon)
-  if (!is.null(msg)) return(msg)
+  # A direct MongoDB connection represents a single collection.
+  # Connection lists use the standard two-collection layout.
+  if (!inherits(object@dbcon, "mongo")) {
+    msg <- .valid_mongocon(object@dbcon)
+    if (!is.null(msg))
+      return(msg)
+  }
 
   # nspectra matches spectraIds
   if (length(object@spectraIds) != object@nspectra)

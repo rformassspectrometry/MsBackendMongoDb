@@ -472,7 +472,7 @@ head(spectra_subset)
 
 library(mongolite)
 source("C:/Users/ament/Desktop/Github/MsBackendMongoDb/R/MsBackendMongoDB-functions.R")
-
+source("C:/Users/ament/Desktop/Github/MsBackendMongoDb/R/MsBackendGnpsMongoDb.R")
 # Connection to the local database
 m <- mongo(collection = "gnps", db = "BD", url = "mongodb://localhost")
 

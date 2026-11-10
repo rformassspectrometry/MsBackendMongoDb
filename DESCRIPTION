@@ -43,4 +43,8 @@ BugReports: https://github.com/RforMassSpectrometry/MsBackendMongoDb/issues
 URL: https://github.com/RforMassSpectrometry/MsBackendMongoDb
 biocViews: Infrastructure, MassSpectrometry, Metabolomics, DataImport, Proteomics
 Roxygen: list(markdown=TRUE)
-RoxygenNote: 7.3.3
+Config/roxygen2/version: 8.1.0
+Collate: 
+    'MsBackendMongoDB.R'
+    'MsBackendGnpsMongoDb.R'
+    'MsBackendMongoDB-functions.R'
