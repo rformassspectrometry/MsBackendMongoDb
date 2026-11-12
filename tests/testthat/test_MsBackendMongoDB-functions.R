@@ -454,11 +454,13 @@ test_that("gnps_fetch_peaks_data works correctly", {
 
 
 
-#test locally
-library(mongolite)
+#test on a local mongodb database comming from a gnps .json file with the following command:
+# mongoimport.exe --drop -v --host localhost --db BD --collection gnps --type json --jsonArray --file "path\ALL_GNPS_cleaned.json"
+#create a connection to the local mongodb
+
 m <- mongo(collection = "gnps", db = "BD", url = "mongodb://localhost")
 
-# return all the fields except the peqks
+# return all the fields except the peaks
 spectra <- gnps_fetch_spectra_data(m)
 head(spectra)
 
@@ -466,13 +468,7 @@ head(spectra)
 spectra_subset <- gnps_fetch_spectra_data(m, fields = c("spectrum_id_", "Precursor_MZ"))
 head(spectra_subset)
 
-
 #test peaks gnps
-
-
-library(mongolite)
-source("C:/Users/ament/Desktop/Github/MsBackendMongoDb/R/MsBackendMongoDB-functions.R")
-source("C:/Users/ament/Desktop/Github/MsBackendMongoDb/R/MsBackendGnpsMongoDb.R")
 # Connection to the local database
 m <- mongo(collection = "gnps", db = "BD", url = "mongodb://localhost")
 
