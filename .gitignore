@@ -4,4 +4,5 @@ local_data
 *.so
 .Rproj.user
 *.Rproj
-.Rhistory
+.Rhistorydata/20241003_enamdisc_neg_ms2.json
+data/20241003_enamdisc_neg_msn.json
