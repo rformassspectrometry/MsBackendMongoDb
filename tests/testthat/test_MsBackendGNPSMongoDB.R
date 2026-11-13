@@ -1,7 +1,7 @@
-with_gnps_fixture <- function(check) {
+with_reference_fixture <- function(format, check) {
   conn <- tryCatch({
     connection <- mongolite::mongo(
-      collection = basename(tempfile(pattern = "gnps_backend_")),
+      collection = basename(tempfile(pattern = "reference_backend_")),
       db = "test_db",
       url = "mongodb://localhost"
     )
@@ -12,36 +12,79 @@ with_gnps_fixture <- function(check) {
   testthat::skip_if(is.null(conn), "Local MongoDB is unavailable")
   on.exit(conn$drop(), add = TRUE)
   
-  conn$insert(data.frame(
-    spectrum_id = c("GNPS_TEST_1", "GNPS_TEST_2"),
-    Precursor_MZ = c("500.12", "600.34"),
-    Ion_Mode = c("positive", "negative"),
-    ms_level = c("2", "2"),
-    peaks_json = c(
-      "[(123.4, 567), (124.5, 678)]",
-      "[[125.6, 789], [126.7, 890]]"
+  if (format == "gnps") {
+    fixture <- data.frame(
+      spectrum_id = c("GNPS_TEST_1", "GNPS_TEST_2"),
+      Precursor_MZ = c("500.12", "600.34"),
+      Ion_Mode = c("positive", "negative"),
+      ms_level = c("2", "2"),
+      peaks_json = c(
+        "[(123.4, 567), (124.5, 678)]",
+        "[[125.6, 789], [126.7, 890]]"
+      )
     )
-  ))
+    conn$insert(fixture)
+  } else {
+    # Insert JSON directly to preserve nested m/z–intensity arrays.
+    fixture <- lapply(2:5, function(level) {
+      list(
+        precursor_mz = 500 - level,
+        polarity = "-",
+        ms_level = level,
+        compound_name = "MSNLIB_TEST",
+        smiles = "CCO",
+        inchikey = "LFQSCWFLJHTTHZ-UHFFFAOYSA-N",
+        feature_id = "test_acquisition_feature_1",
+        merge_type = "SINGLE_BEST_SCAN",
+        peaks = list(
+          c(100 + level, 10 * level),
+          c(200 + level, 20 * level)
+        )
+      )
+    })
+    
+    documents <- vapply(
+      fixture,
+      function(document) {
+        as.character(jsonlite::toJSON(document, auto_unbox = TRUE))
+      },
+      character(1)
+    )
+    
+    conn$insert(documents)
+  }
   
   check(conn)
 }
 
+
 testthat::test_that("backendInitialize() creates a valid GNPS backend", {
-  with_gnps_fixture(function(conn) {
+  with_reference_fixture("gnps", function(conn) {
     backend <- ProtGenerics::backendInitialize(
       MsBackendGnpsMongoDb(),
-      dbcon = conn
+      dbcon = conn,
+      format = "gnps"
     )
     
     testthat::expect_s4_class(backend, "MsBackendGnpsMongoDb")
     testthat::expect_true(methods::validObject(backend))
     testthat::expect_length(backend, 2L)
+    
+    ids <- Spectra::spectraNames(backend)
+    testthat::expect_length(unique(ids), 2L)
+    testthat::expect_true(all(grepl("^[[:xdigit:]]{24}$", ids)))
   })
 })
 
-testthat::test_that("spectraData() maps GNPS metadata to Spectra variables", {
-  with_gnps_fixture(function(conn) {
-    sps <- Spectra::Spectra(conn, source = MsBackendGnpsMongoDb())
+
+testthat::test_that("spectraData() maps GNPS metadata correctly", {
+  with_reference_fixture("gnps", function(conn) {
+    sps <- Spectra::Spectra(
+      conn,
+      source = MsBackendGnpsMongoDb(),
+      format = "gnps"
+    )
+    
     metadata <- Spectra::spectraData(
       sps,
       columns = c("spectrum_id", "precursorMz", "polarity", "msLevel")
@@ -57,57 +100,145 @@ testthat::test_that("spectraData() maps GNPS metadata to Spectra variables", {
   })
 })
 
+
 testthat::test_that("peaksData() decodes both GNPS peak formats", {
-  with_gnps_fixture(function(conn) {
-    sps <- Spectra::Spectra(conn, source = MsBackendGnpsMongoDb())
-    peaks <- Spectra::peaksData(sps)
+  with_reference_fixture("gnps", function(conn) {
+    sps <- Spectra::Spectra(
+      conn,
+      source = MsBackendGnpsMongoDb(),
+      format = "gnps"
+    )
+    
+    metadata <- Spectra::spectraData(sps, columns = "spectrum_id")
+    index <- match(c("GNPS_TEST_1", "GNPS_TEST_2"), metadata$spectrum_id)
+    selected <- sps[index]
+    peaks <- Spectra::peaksData(selected)
     
     testthat::expect_length(peaks, 2L)
+    testthat::expect_identical(names(peaks), Spectra::spectraNames(selected))
+    
     testthat::expect_equal(
-      peaks[["GNPS_TEST_1"]],
+      peaks[[1L]],
       cbind(mz = c(123.4, 124.5), intensity = c(567, 678))
     )
     testthat::expect_equal(
-      peaks[["GNPS_TEST_2"]],
+      peaks[[2L]],
       cbind(mz = c(125.6, 126.7), intensity = c(789, 890))
     )
   })
 })
 
-testthat::test_that("subsetting preserves spectrum order and repeated IDs", {
-  with_gnps_fixture(function(conn) {
-    sps <- Spectra::Spectra(conn, source = MsBackendGnpsMongoDb())
-    ids <- Spectra::spectraData(sps, columns = "spectrum_id")$spectrum_id
+
+testthat::test_that("subsetting preserves order and repeated spectra", {
+  with_reference_fixture("gnps", function(conn) {
+    sps <- Spectra::Spectra(
+      conn,
+      source = MsBackendGnpsMongoDb(),
+      format = "gnps"
+    )
     
+    metadata <- Spectra::spectraData(sps, columns = "spectrum_id")
     requested_ids <- c("GNPS_TEST_2", "GNPS_TEST_1", "GNPS_TEST_2")
-    selected <- sps[match(requested_ids, ids)]
+    index <- match(requested_ids, metadata$spectrum_id)
+    expected_names <- Spectra::spectraNames(sps)[index]
     
-    metadata <- Spectra::spectraData(
-      selected, columns = c("spectrum_id", "precursorMz")
+    selected <- sps[index]
+    result <- Spectra::spectraData(
+      selected,
+      columns = c("spectrum_id", "precursorMz")
     )
     peaks <- Spectra::peaksData(selected)
     
-    testthat::expect_identical(metadata$spectrum_id, requested_ids)
-    testthat::expect_equal(metadata$precursorMz, c(600.34, 500.12, 600.34))
-    testthat::expect_identical(names(peaks), requested_ids)
-    testthat::expect_identical(peaks[[1]], peaks[[3]])
+    testthat::expect_identical(result$spectrum_id, requested_ids)
+    testthat::expect_equal(result$precursorMz, c(600.34, 500.12, 600.34))
+    testthat::expect_identical(names(peaks), expected_names)
+    testthat::expect_identical(peaks[[1L]], peaks[[3L]])
   })
 })
 
-# Integration test using a local MongoDB instance.
-# The GNPS public spectral library (ALL_GNPS_cleaned.json) was imported into
-# the gnps collection of the BD database using this command:
-#
-# mongoimport.exe --drop -v --host localhost --db BD --collection gnps --type json --jsonArray --file "path\ALL_GNPS_cleaned.json"
-#
-# Each document in the collection stores the metadata and peaks for one
-# spectrum. The test connects to the collection, creates a Spectra object
-# backed by MsBackendGnpsMongoDb, and verifies the precursor m/z and peak
-# data for a known GNPS spectrum ID.
+
+testthat::test_that("spectraData() maps MSnLib metadata for MS2 to MS5", {
+  with_reference_fixture("msnlib", function(conn) {
+    sps <- Spectra::Spectra(
+      conn,
+      source = MsBackendGnpsMongoDb(),
+      format = "msnlib"
+    )
+    
+    metadata <- Spectra::spectraData(
+      sps,
+      columns = c(
+        "spectrum_id", "precursorMz", "polarity", "msLevel",
+        "smiles", "inchikey", "feature_id", "merge_type"
+      )
+    )
+    
+    testthat::expect_length(sps, 4L)
+    testthat::expect_true(methods::validObject(sps))
+    testthat::expect_setequal(metadata$msLevel, 2:5)
+    
+    metadata <- metadata[order(metadata$msLevel), , drop = FALSE]
+    
+    testthat::expect_equal(metadata$precursorMz, 500 - (2:5))
+    testthat::expect_identical(metadata$polarity, rep(0L, 4L))
+    testthat::expect_identical(metadata$smiles, rep("CCO", 4L))
+    testthat::expect_identical(
+      metadata$inchikey,
+      rep("LFQSCWFLJHTTHZ-UHFFFAOYSA-N", 4L)
+    )
+    testthat::expect_identical(
+      metadata$feature_id,
+      rep("test_acquisition_feature_1", 4L)
+    )
+    testthat::expect_identical(
+      metadata$merge_type,
+      rep("SINGLE_BEST_SCAN", 4L)
+    )
+    testthat::expect_setequal(
+      metadata$spectrum_id,
+      Spectra::spectraNames(sps)
+    )
+  })
+})
+
+
+testthat::test_that("peaksData() reads the MSnLib peaks field", {
+  with_reference_fixture("msnlib", function(conn) {
+    sps <- Spectra::Spectra(
+      conn,
+      source = MsBackendGnpsMongoDb(),
+      format = "msnlib"
+    )
+    
+    levels <- Spectra::spectraData(sps, columns = "msLevel")$msLevel
+    selected <- sps[match(2:5, levels)]
+    peaks <- Spectra::peaksData(selected)
+    
+    testthat::expect_identical(names(peaks), Spectra::spectraNames(selected))
+    
+    for (level in 2:5) {
+      testthat::expect_equal(
+        peaks[[level - 1L]],
+        cbind(
+          mz = c(100 + level, 200 + level),
+          intensity = c(10 * level, 20 * level)
+        )
+      )
+    }
+    
+    mz_only <- Spectra::peaksData(selected, columns = "mz")
+    testthat::expect_identical(colnames(mz_only[[1L]]), "mz")
+    testthat::expect_equal(mz_only[[1L]][, "mz"], c(102, 202))
+  })
+})
+
+
+# Optional integration test using the existing BD.gnps collection.
+# This test reads the collection without modifying its documents.
 testthat::test_that("GNPS backend reads the imported ALL_GNPS library", {
   testthat::skip_if(
     Sys.getenv("TEST_GNPS_LIBRARY") != "true",
-    "Set TEST_GNPS_LIBRARY=true to test the local BD.gnps collection"
+    "Set TEST_GNPS_LIBRARY=true to test BD.gnps"
   )
   
   conn <- mongolite::mongo(
@@ -115,36 +246,48 @@ testthat::test_that("GNPS backend reads the imported ALL_GNPS library", {
     db = "BD",
     url = "mongodb://localhost"
   )
+  
   testthat::expect_gt(conn$count(), 0)
   
-  sps <- Spectra::Spectra(conn, source = MsBackendGnpsMongoDb())
+  sps <- Spectra::Spectra(
+    conn,
+    source = MsBackendGnpsMongoDb(),
+    format = "gnps"
+  )
   testthat::expect_equal(length(sps), conn$count())
   
-  # Find a known spectrum by ID, independently of collection order.
+  # Locate one reference directly, avoiding retrieval of all metadata.
   id <- "CCMSLIB00000001553"
-  ids <- Spectra::spectraData(sps, columns = "spectrum_id")$spectrum_id
-  index <- match(id, ids)
+  raw <- conn$find(
+    query = jsonlite::toJSON(list(spectrum_id = id), auto_unbox = TRUE),
+    fields = '{"_id": 1, "peaks_json": 1}',
+    limit = 2L
+  )
+  
+  testthat::expect_equal(nrow(raw), 1L)
+  if (nrow(raw) != 1L)
+    stop("Expected exactly one document for the reference spectrum.")
+  
+  index <- match(
+    as.character(raw[["_id"]][[1L]]),
+    Spectra::spectraNames(sps)
+  )
   testthat::expect_false(is.na(index))
   
   selected <- sps[index]
   metadata <- Spectra::spectraData(
-    selected, columns = c("spectrum_id", "precursorMz")
+    selected,
+    columns = c("spectrum_id", "precursorMz")
   )
+  
   testthat::expect_identical(metadata$spectrum_id, id)
   testthat::expect_equal(metadata$precursorMz, 689)
   
-  # Decode the original peak text independently of the backend.
-  raw <- conn$find(
-    query = jsonlite::toJSON(list(spectrum_id = id), auto_unbox = TRUE),
-    fields = '{"peaks_json": 1, "_id": 0}',
-    limit = 2L
+  expected <- jsonlite::fromJSON(
+    chartr("()", "[]", raw$peaks_json[[1L]])
   )
-  testthat::expect_equal(nrow(raw), 1L)
-  
-  expected <- jsonlite::fromJSON(chartr("()", "[]", raw$peaks_json[[1L]]))
   colnames(expected) <- c("mz", "intensity")
   
   actual <- Spectra::peaksData(selected)[[1L]]
   testthat::expect_equal(actual, expected, tolerance = 0)
 })
-

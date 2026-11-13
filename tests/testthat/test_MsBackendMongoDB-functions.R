@@ -452,59 +452,144 @@ test_that("gnps_fetch_peaks_data works correctly", {
 })
 
 
+# Manual checks using locally imported GNPS and MSnLib collections.
+library(mongolite)
+
+# GNPS reference library.
+# Import command for a JSON array:
+# mongoimport.exe --drop --host localhost --db BD --collection gnps --jsonArray --file "path\ALL_GNPS_cleaned.json"
+
+gnps <- mongo(
+  collection = "gnps",
+  db = "BD",
+  url = "mongodb://localhost"
+)
+
+# Retrieve selected metadata.
+gnps_metadata <- gnps_fetch_spectra_data(
+  gnps,
+  fields = c("spectrum_id", "Precursor_MZ"),
+  limit = 6
+)
+gnps_metadata
+
+# Retrieve peaks for five spectra.
+gnps_peaks <- gnps_fetch_peaks_data(
+  gnps,
+  limit = 5,
+  id_field = "spectrum_id"
+)
+names(gnps_peaks)
+
+if (length(gnps_peaks))
+  print(head(gnps_peaks[[1L]]))
+
+# Retrieve peaks for a known GNPS spectrum.
+specific_peaks <- gnps_fetch_peaks_data(
+  gnps,
+  query = list(spectrum_id = "CCMSLIB00000001547"),
+  id_field = "spectrum_id"
+)
+
+if (length(specific_peaks))
+  print(head(specific_peaks[[1L]]))
+
+# Access the collection through Spectra.
+sps_gnps <- Spectra::Spectra(
+  gnps,
+  source = MsBackendGnpsMongoDb(),
+  format = "gnps"
+)
+
+table(Spectra::msLevel(sps_gnps), useNA = "ifany")
+
+gnps_subset <- sps_gnps[1:6]
+stopifnot(length(gnps_subset) == 6L)
+
+Spectra::spectraData(
+  gnps_subset,
+  columns = c(
+    "spectrum_id", "msLevel", "precursorMz", "polarity", "inchikey"
+  )
+)
+
+head(Spectra::peaksData(gnps_subset)[[1L]])
 
 
-#test on a local mongodb database comming from a gnps .json file with the following command:
-# mongoimport.exe --drop -v --host localhost --db BD --collection gnps --type json --jsonArray --file "path\ALL_GNPS_cleaned.json"
-#create a connection to the local mongodb
+# MSnLib reference library containing MS2–MS5 spectra.
+# Import command for a JSON array:
+# mongoimport.exe --drop --host localhost --db BD_MSnLib_test --collection gnps_MSnLib_test --jsonArray --file "path\20241003_enamdisc_neg_msn.json"
 
-m <- mongo(collection = "gnps", db = "BD", url = "mongodb://localhost")
+msn <- mongo(
+  collection = "gnps_MSnLib_test",
+  db = "BD_MSnLib_test",
+  url = "mongodb://localhost"
+)
 
-# return all the fields except the peaks
-spectra <- gnps_fetch_spectra_data(m)
-head(spectra)
+# Retrieve peaks for five spectra using MongoDB ObjectIds.
+msn_peaks <- gnps_fetch_peaks_data(
+  msn,
+  limit = 5,
+  id_field = "_id"
+)
+names(msn_peaks)
 
-# Return just the given fields
-spectra_subset <- gnps_fetch_spectra_data(m, fields = c("spectrum_id_", "Precursor_MZ"))
-head(spectra_subset)
+if (length(msn_peaks))
+  print(head(msn_peaks[[1L]]))
 
-#test peaks gnps
-# Connection to the local database
-m <- mongo(collection = "gnps", db = "BD", url = "mongodb://localhost")
+# Access MSn spectra and fragmentation paths through Spectra.
+sps_msn <- Spectra::Spectra(
+  msn,
+  source = MsBackendGnpsMongoDb(),
+  format = "msnlib"
+)
 
-# return the 5 first peaks of the spectrum
-peaks <- gnps_fetch_peaks_data(m, limit = 5, id_field = "spectrum_id")
-print("IDs des spectres récupérés :")
-print(names(peaks))
+table(Spectra::msLevel(sps_msn), useNA = "ifany")
 
-if (length(peaks) > 0) {
-  first_peak_matrix <- peaks[[1]]
-  print("pirst peaks of the first spectrum :")
-  print(head(first_peak_matrix))
-}
+msn_subset <- sps_msn[1:6]
+stopifnot(length(msn_subset) == 6L)
 
-specific_peaks <- gnps_fetch_peaks_data(m, query = list(spectrum_id = "CCMSLIB00000001547"), id_field = "spectrum_id")
-print("Peaks of a given spectrum :")
-print(names(specific_peaks))
-if (length(specific_peaks) > 0) {
-  print(head(specific_peaks[[1]]))
-}
+path_columns <- c(
+  "msn_precursor_mzs",
+  "msn_collision_energies",
+  "msn_fragmentation_methods",
+  "msn_isolation_windows"
+)
 
-#test on a local mongodb database comming from the MSnLib .json file with Ms5 fragments:
-# mongoimport.exe --drop -v --host localhost --db BD_MSnLib_test --collection gnps_MSnLib_test --type json --file "path\20241003_enamdisc_neg_msn.json
-#create a connection to the local mongodb
-msn <- mongo(collection = "gnps_MSnLib_test", db = "BD_MSnLib_test", url = "mongodb://localhost")
+msn_metadata <- Spectra::spectraData(
+  msn_subset,
+  columns = c(
+    "spectrum_id", "feature_id", "msLevel",
+    "scan_number", "merge_type", path_columns
+  )
+)
+msn_metadata
 
-spectra2 <- gnps_fetch_spectra_data(msn)
-head(spectra2)
-sort(unique(spectra2$ms_level))
-sort(unique(spectra2$merge_type))
+head(Spectra::peaksData(msn_subset)[[1L]])
 
-peaks2 <- gnps_fetch_peaks_data(msn, limit = 5, id_field = "_id")
-print("IDs des spectres récupérés :")
-print(names(peaks2))
-if (length(peaks2) > 0) {
-  first_peak_matrix <- peaks2[[1]]
-  print("pirst peaks of the first spectrum :")
-  print(head(first_peak_matrix))
+# Inspect one spectrum's complete fragmentation path.
+lapply(msn_metadata[, path_columns, drop = FALSE], function(x) x[[5L]])
+
+# Verify that subsetting preserves every path and repeated spectra.
+selection <- c(5L, 6L, 5L)
+
+repeated <- Spectra::spectraData(
+  msn_subset[selection],
+  columns = c("spectrum_id", path_columns)
+)
+
+stopifnot(
+  identical(
+    repeated$spectrum_id,
+    msn_metadata$spectrum_id[selection]
+  )
+)
+
+for (column in path_columns) {
+  stopifnot(
+    identical(
+      repeated[[column]],
+      msn_metadata[[column]][selection]
+    )
+  )
 }

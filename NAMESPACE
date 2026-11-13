@@ -43,6 +43,9 @@ importFrom(methods,
   getMethod,
   is,
   new,
+  selectMethod,
+  setClass,
+  setMethod,
   validObject
 )
 importFrom(mongolite,mongo)
