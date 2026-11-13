@@ -139,15 +139,6 @@ test_that(".fetch_peaks_data_long_mongo handles multiple spectrum_id_", {
   clear_db(dbcon)
 })
 
-    ## Check that the peaks are correct
-    expect_equal(res[[1]][, "mz"], c(100, 200))
-    expect_equal(res[[1]][, "intensity"], c(10, 20))
-    expect_equal(res[[2]][, "mz"], c(150, 250))
-    expect_equal(res[[2]][, "intensity"], c(15, 25))
-
-    clear_db(dbcon)
-})
-
 test_that(".fetch_spectra_data_mongo works with scalars + peaks", {
   dbcon <- test_dbcon()
   clear_db(dbcon)
@@ -200,22 +191,6 @@ test_that(".fetch_spectra_data_mongo works with scalars + peaks", {
   expect_equal(as.numeric(spdata$intensity[[2]]), c(15, 25))
 
   clear_db(dbcon)
-})
-
-    expect_equal(nrow(spdata), 2)
-    expect_equal(spdata$spectrum_id_, c("SP1", "SP2"))
-    expect_equal(spdata$msLevel, c(2L, 1L))
-
-    ## Peaks are returned as NumericList
-    expect_s4_class(spdata$mz, "NumericList")
-    expect_s4_class(spdata$intensity, "NumericList")
-
-    expect_equal(as.numeric(spdata$mz[[1]]), c(100, 200))
-    expect_equal(as.numeric(spdata$mz[[2]]), c(150, 250))
-    expect_equal(as.numeric(spdata$intensity[[1]]), c(10, 20))
-    expect_equal(as.numeric(spdata$intensity[[2]]), c(15, 25))
-
-    clear_db(dbcon)
 })
 
 test_that(".insert_new_backend_mongo inserts or updates correctly", {
@@ -319,49 +294,7 @@ test_that("spectrum_id_ auto increments as spec'nb' strings", {
   dbcon$ms_peaks_coll$drop()
 })
 
-    dbcon$ms_spectrum_coll$drop()
-    dbcon$ms_peaks_coll$drop()
-
-    df1 <- data.frame(
-        precursorMz = c(100, 200),
-        msLevel = c(2, 2),
-        peaks = I(list(
-            list(mz = c(50, 60), intensity = c(10, 20)),
-            list(mz = c(70, 80), intensity = c(30, 40))
-        )),
-        stringsAsFactors = FALSE
-    )
-
-    .createMsBackendMongoDb(dbcon, df1)
-
-    ids1 <- dbcon$ms_spectrum_coll$distinct("spectrum_id_")
-    expect_equal(ids1, c("SP1", "SP2"))
-
-    df2 <- data.frame(
-        precursorMz = c(300, 400),
-        msLevel = c(2, 2),
-        peaks = I(list(
-            list(mz = c(90, 100), intensity = c(50, 60)),
-            list(mz = c(110, 120), intensity = c(70, 80))
-        )),
-        stringsAsFactors = FALSE
-    )
-
-    .createMsBackendMongoDb(dbcon, df2)
-
-    ids2 <- dbcon$ms_spectrum_coll$distinct("spectrum_id_")
-    ## Existing spec1, spec2 + new spec3, spec4
-    expect_equal(ids2, c("SP1", "SP2", "SP3", "SP4"))
-
-    ## Peaks also inserted correctly
-    peaks_docs <- dbcon$ms_peaks_coll$find('{}')
-    expect_equal(sort(peaks_docs$spectrum_id_), c("SP1", "SP2", "SP3", "SP4"))
-
-    ## Clean up
-    dbcon$ms_spectrum_coll$drop()
-    dbcon$ms_peaks_coll$drop()
-})
-
+  
 test_that("combine multiple MsBackendMongoDb backends", {
 
     dbcon <- list(
@@ -525,6 +458,7 @@ test_that("gnps_fetch_peaks_data works correctly", {
   expect_equal(limited_peaks[["SP2"]][1, "intensity"], 789, check.attributes = FALSE)
 })
 
+if (FALSE) {
 
 # Manual checks using locally imported GNPS and MSnLib collections.
 library(mongolite)
@@ -666,4 +600,5 @@ for (column in path_columns) {
       msn_metadata[[column]][selection]
     )
   )
+}
 }

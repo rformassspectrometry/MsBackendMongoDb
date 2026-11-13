@@ -553,11 +553,7 @@ test_that("backendInitialize with data provided works", {
 })
 
 
-pkg <- "C:/Users/ament/Desktop/Github/MsBackendMongoDb"
-
-devtools::document(pkg)
-devtools::load_all(pkg)
-
+if (FALSE) {
 methods::extends("MsBackendGnpsMongoDb", "MsBackendMongoDb")
 # Expected: TRUE
 source("C:/Users/ament/Desktop/Github/MsBackendMongoDb/R/MsBackendGnpsMongoDb.R")
@@ -605,3 +601,4 @@ colnames(expected) <- c("mz", "intensity")
 comparison <- all.equal(expected, peaks[[1]], tolerance = 0)
 print(comparison)
 stopifnot(isTRUE(comparison))
+}
