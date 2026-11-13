@@ -4,6 +4,8 @@ export(MsBackendGnpsMongoDb)
 export(MsBackendMongoDb)
 export(connectMsBackendMongoDb)
 exportClasses(MsBackendGnpsMongoDb)
+export(start_mongodb)
+export(stop_mongodb)
 exportClasses(MsBackendMongoDb)
 exportMethods("[")
 exportMethods("intensity<-")
@@ -20,6 +22,7 @@ exportMethods(reset)
 exportMethods(show)
 exportMethods(spectraData)
 exportMethods(spectraNames)
+exportMethods(supportsSetBackend)
 importClassesFrom(DBI,DBIConnection)
 importClassesFrom(S4Vectors,DataFrame)
 importClassesFrom(Spectra,MsBackendCached)
@@ -34,11 +37,16 @@ importFrom(S4Vectors,
   extractROWS,
   make_zero_col_DFrame
 )
+importFrom(Spectra,
+  coreSpectraVariables,
+  processingChunkFactor
+)
 importFrom(fastmatch,fmatch)
 importFrom(jsonlite,toJSON)
 importFrom(methods,
   "slot<-",
   .valueClassTest,
+  as,
   callNextMethod,
   getMethod,
   is,
@@ -59,8 +67,11 @@ importMethodsFrom(ProtGenerics,intensity)
 importMethodsFrom(ProtGenerics,mz)
 importMethodsFrom(ProtGenerics,peaksData)
 importMethodsFrom(ProtGenerics,peaksVariables)
+importMethodsFrom(ProtGenerics,setBackend)
 importMethodsFrom(ProtGenerics,spectraData)
 importMethodsFrom(ProtGenerics,spectraNames)
 importMethodsFrom(ProtGenerics,spectraVariables)
 importMethodsFrom(Spectra,reset)
 importMethodsFrom(Spectra,show)
+importMethodsFrom(Spectra,supportsSetBackend)
+importMethodsFrom(Spectra,tic)

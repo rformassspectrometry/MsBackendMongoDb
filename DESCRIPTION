@@ -1,6 +1,6 @@
 Package: MsBackendMongoDb
 Title: NoSQL-based Mass Spectrometry Data Backend
-Version: 0.97.2
+Version: 0.97.4
 Authors@R:
     c(person(given = "Ahlam", family = "Mentag",
              email = "ahlammentag8@gmail.com",
@@ -33,10 +33,10 @@ Suggests:
     knitr (>= 1.1.0),
     roxygen2,
     BiocStyle (>= 2.5.19),
-    msdata,
     rmarkdown,
+    MsDataHub,
     mzR
-License: Artistic-2.0
+License: GPL-3
 Encoding: UTF-8
 VignetteBuilder: knitr
 BugReports: https://github.com/RforMassSpectrometry/MsBackendMongoDb/issues

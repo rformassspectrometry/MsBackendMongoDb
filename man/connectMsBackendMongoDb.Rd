@@ -4,12 +4,21 @@
 \alias{connectMsBackendMongoDb}
 \title{Create a connection to MongoDb}
 \usage{
-connectMsBackendMongoDb(db = "spectra_db", url = "mongodb://localhost")
+connectMsBackendMongoDb(
+  db = "spectra_db",
+  url = "mongodb://localhost",
+  clean = FALSE
+)
 }
 \arguments{
 \item{db}{\code{character(1)} scalar, name of the MongoDb database.}
 
 \item{url}{\code{character(1)} a MongoDb server URL.}
+
+\item{clean}{\code{logical(1)} whether the collection should be \emph{cleaned}, i.e.,
+if all content should be deleted. Be careful with this parameter as
+setting to \code{TRUE} will delete evantually persent content from the
+database.}
 }
 \value{
 A named \code{list()} of \code{mongo} connection objects.
