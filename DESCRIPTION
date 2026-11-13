@@ -44,4 +44,4 @@ URL: https://github.com/RforMassSpectrometry/MsBackendMongoDb
 biocViews: Infrastructure, MassSpectrometry, Metabolomics, DataImport, Proteomics
 Roxygen: list(markdown=TRUE)
 SystemRequirements: mongodb
-Config/roxygen2/version: 8.0.0
+Config/roxygen2/version: 8.1.1
