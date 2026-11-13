@@ -452,80 +452,110 @@ gnps_fetch_spectra_data <- function(mongo_con, collection_name = "gnps",
 #'
 #' @author Ahlam Mentag
 #'
-gnps_fetch_peaks_data <- function(mongo_con, collection_name = "gnps",
-                                  query = NULL, limit = NULL,
+gnps_fetch_peaks_data <- function(mongo_con,
+                                  collection_name = "gnps",
+                                  query = NULL,
+                                  limit = NULL,
                                   id_field = "spectrum_id") {
-  # Helper function to parse GNPS peaks string
-  .parse_gnps_peaks <- function(peaks_str) {
-    if (is.null(peaks_str) || peaks_str == "null" || peaks_str == "" || is.na(peaks_str)) {
-      return(matrix(nrow = 0, ncol = 2, dimnames = list(NULL, c("mz", "intensity"))))
-    }
-    
-    peaks_str <- gsub("(\\[|\\]|\\(|\\))", "", peaks_str)
-    peaks_str <- gsub("^\\s+|\\s+$", "", peaks_str)
-    
-    pairs <- strsplit(peaks_str, "],\\[|,\\[|\\]")
-    if (length(pairs) == 0 || length(pairs[[1]]) == 0) {
-      return(matrix(nrow = 0, ncol = 2, dimnames = list(NULL, c("mz", "intensity"))))
-    }
-    
-    pairs <- strsplit(pairs[[1]], ",")
-    if (length(pairs) == 0 || length(pairs[[1]]) == 0) {
-      return(matrix(nrow = 0, ncol = 2, dimnames = list(NULL, c("mz", "intensity"))))
-    }
-    
-    mat <- do.call(rbind, lapply(pairs[[1]], function(p) {
-      p <- trimws(p)
-      if (p == "" || is.na(p)) return(NULL)
-      num_p <- suppressWarnings(as.numeric(p))
-      if (length(num_p) != 1 || is.na(num_p)) return(NULL)
-      num_p
-    }))
-    
-    if (is.null(mat) || nrow(mat) == 0) {
-      return(matrix(nrow = 0, ncol = 2, dimnames = list(NULL, c("mz", "intensity"))))
-    }
-    
-    mat <- matrix(mat, ncol = 2, byrow = TRUE)
-    colnames(mat) <- c("mz", "intensity")
-    mat
-  }
   
-  # Handle limit = 0 case
   if (!is.null(limit) && limit == 0) {
     return(list())
   }
   
-  # Prepare find arguments
+  # Include both peak formats and the requested identifier.
+  fields <- unique(c("peaks", "peaks_json", id_field))
+  projection <- setNames(rep(list(1L), length(fields)), fields)
+  
+  # Avoid a duplicate _id entry.
+  if (id_field != "_id") {
+    projection[["_id"]] <- 0L
+  }
+  
   find_args <- list(
-    query = if (!is.null(query)) toJSON(query, auto_unbox = TRUE) else '{}',
-    fields = sprintf('{"peaks_json": 1, "%s": 1, "_id": 0}', id_field)
+    query = if (is.null(query)) {
+      "{}"
+    } else if (is.character(query)) {
+      query
+    } else {
+      jsonlite::toJSON(query, auto_unbox = TRUE)
+    },
+    fields = jsonlite::toJSON(projection, auto_unbox = TRUE)
   )
   
-  # Only add limit if it is not NULL
   if (!is.null(limit)) {
     find_args$limit <- as.integer(limit)
   }
   
-  # Fetch peaks_json and spectrum_id
   docs <- do.call(mongo_con$find, find_args)
   
-  # Reformat peaks
-  if (nrow(docs) == 0) {
+  if (nrow(docs) == 0L) {
     return(list())
   }
   
-  peaks_list <- lapply(docs$peaks_json, function(peaks_str) {
-    tryCatch({
-      .parse_gnps_peaks(peaks_str)
-    }, error = function(e) {
-      message("Error parsing peaks: ", e$message)
-      matrix(nrow = 0, ncol = 2, dimnames = list(NULL, c("mz", "intensity")))
-    })
+  if (!id_field %in% names(docs)) {
+    stop("Identifier field not found: ", id_field)
+  }
+  
+  if (!any(c("peaks", "peaks_json") %in% names(docs))) {
+    stop("Neither 'peaks' nor 'peaks_json' was found.")
+  }
+  
+  empty_peaks <- function() {
+    matrix(
+      numeric(),
+      ncol = 2L,
+      dimnames = list(NULL, c("mz", "intensity"))
+    )
+  }
+  
+  is_missing <- function(x) {
+    is.null(x) ||
+      length(x) == 0L ||
+      (is.atomic(x) && length(x) == 1L &&
+         (is.na(x) ||
+            (is.character(x) && trimws(x) %in% c("", "null"))))
+  }
+  
+  parse_peaks <- function(x) {
+    if (is_missing(x)) {
+      return(empty_peaks())
+    }
+    
+    # GNPS strings may contain parenthesized pairs:
+    # [(mz, intensity), ...] -> [[mz, intensity], ...]
+    if (is.character(x) && length(x) == 1L) {
+      x <- chartr("()", "[]", x)
+      x <- jsonlite::fromJSON(x)
+      return(parse_peaks(x))
+    }
+    
+    # MSnLib peaks are already numeric matrices.
+    mat <- as.matrix(x)
+    
+    if (ncol(mat) != 2L) {
+      stop("Expected two peak columns: mz and intensity.")
+    }
+    
+    storage.mode(mat) <- "double"
+    colnames(mat) <- c("mz", "intensity")
+    mat
+  }
+  
+  peaks_list <- lapply(seq_len(nrow(docs)), function(i) {
+    x <- if ("peaks" %in% names(docs)) {
+      docs$peaks[[i]]
+    } else {
+      NULL
+    }
+    
+    if (is_missing(x) && "peaks_json" %in% names(docs)) {
+      x <- docs$peaks_json[[i]]
+    }
+    
+    parse_peaks(x)
   })
   
-  # Use the correct field for spectrum IDs
-  names(peaks_list) <- docs[[id_field]]
+  names(peaks_list) <- as.character(docs[[id_field]])
   peaks_list
 }
 

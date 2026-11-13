@@ -490,5 +490,21 @@ if (length(specific_peaks) > 0) {
   print(head(specific_peaks[[1]]))
 }
 
+#test on a local mongodb database comming from the MSnLib .json file with Ms5 fragments:
+# mongoimport.exe --drop -v --host localhost --db BD_MSnLib_test --collection gnps_MSnLib_test --type json --file "path\20241003_enamdisc_neg_msn.json
+#create a connection to the local mongodb
+msn <- mongo(collection = "gnps_MSnLib_test", db = "BD_MSnLib_test", url = "mongodb://localhost")
 
+spectra2 <- gnps_fetch_spectra_data(msn)
+head(spectra2)
+sort(unique(spectra2$ms_level))
+sort(unique(spectra2$merge_type))
 
+peaks2 <- gnps_fetch_peaks_data(msn, limit = 5, id_field = "_id")
+print("IDs des spectres récupérés :")
+print(names(peaks2))
+if (length(peaks2) > 0) {
+  first_peak_matrix <- peaks2[[1]]
+  print("pirst peaks of the first spectrum :")
+  print(head(first_peak_matrix))
+}
