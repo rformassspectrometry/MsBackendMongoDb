@@ -601,4 +601,4 @@ colnames(expected) <- c("mz", "intensity")
 comparison <- all.equal(expected, peaks[[1]], tolerance = 0)
 print(comparison)
 stopifnot(isTRUE(comparison))
-}
+} 
