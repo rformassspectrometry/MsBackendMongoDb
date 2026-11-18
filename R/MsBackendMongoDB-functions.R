@@ -428,146 +428,173 @@ connectMsBackendMongoDb <- function(db = "spectra_db",
     invisible(TRUE)
 }
 
-#' Helper function to reformat peaks from GNPS
+#' Fetch GNPS spectra metadata from MongoDB
+#'
+#' @param mongo_con A mongolite::mongo connection object.
+#' @param collection_name Name of the GNPS collection (default: "gnps").
+#' @param query Optional MongoDB query to filter spectra (default: NULL).
+#' @param limit Maximum number of spectra to return (default: NULL).
+#' @param fields Character vector of fields to return (default: all except peaks_json).
+#'
+#' @return A data.frame of spectra metadata.
 #'
 #' @author Ahlam Mentag
-#' @noRd
-.reformat_gnps_peaks <- function(pks) {
-
-  if (is.null(pks) || length(pks) == 0)
-    return(list())
-
-  # Already parsed
-  if (is.list(pks))
-    return(pks)
-
-  if (!is.character(pks))
-    stop("Unsupported GNPS peaks format")
-
-  # JSON array [[mz, int], ...]
-  if (grepl("^\\s*\\[\\s*\\[", pks))
-    return(jsonlite::fromJSON(pks))
-
-  # Python tuple format [(mz, int), ...]
-  if (grepl("^\\s*\\[\\s*\\(", pks)) {
-    pks <- gsub("\\(", "[", pks)
-    pks <- gsub("\\)", "]", pks)
-    return(jsonlite::fromJSON(pks))
+#'
+gnps_fetch_spectra_data <- function(mongo_con, collection_name = "gnps",
+                                    query = NULL, limit = NULL,
+                                    fields = NULL) {
+  if (is.null(fields)) {
+    # Get ALL field names except peaks_json and _id
+    doc <- mongo_con$find('{}', limit = 1)
+    if (nrow(doc) > 0) {
+      fields <- setdiff(names(doc), c("peaks_json", "_id"))
+    } else {
+      return(data.frame())
+    }
   }
 
-  stop("Unsupported GNPS peaks format")
+  # Build projection: include fields and exclude _id
+  projection <- paste0("{", paste(sprintf('"%s":1', fields), collapse = ","), ", \"_id\":0}")
+
+  # Convert limit to integer (mongolite requires numeric limit)
+  if (is.null(limit)) {
+    limit <- 0L  # 0 means no limit in mongolite
+  } else {
+    limit <- as.integer(limit)
+  }
+
+  # Fetch data
+  docs <- mongo_con$find(
+    query = if (!is.null(query)) toJSON(query, auto_unbox = TRUE) else '{}',
+    fields = projection,
+    limit = limit
+  )
+
+  # Convert to data.frame
+  as.data.frame(docs, stringsAsFactors = FALSE)
 }
 
-
-#' Loading GNPS JSON and insert into MongoDB
+#' Fetch and reformat GNPS peaks data from MongoDB
 #'
-#' @param dbcon A list of Mongo connections (must include ms_spectrum_coll
-#'        and ms_peaks_coll)
+#' @param mongo_con A mongolite::mongo connection object.
+#' @param collection_name Name of the GNPS collection (default: "gnps").
+#' @param query Optional MongoDB query to filter spectra (default: NULL).
+#' @param limit Maximum number of spectra to return (default: NULL).
+#' @param id_field Name of the field containing spectrum IDs (default: "spectrum_id").
 #'
-#' @param json_file JSON file path
-#'
-#' @param n_spectra Maximum number of spectra to insert from the JSon file
-#'
-#' @param chunk_size Number of spectra per chunk
-#'
-#' @return NULL
+#' @return A named list of peaks matrices (each with columns `mz` and `intensity`).
 #'
 #' @author Ahlam Mentag
 #'
-#' @noRd
-.add_gnps_json_to_mongo <- function(dbcon, json_file, n_spectra = Inf,
-                                    chunk_size = 100, raw_n = 1e6) {
+gnps_fetch_peaks_data <- function(mongo_con,
+                                  collection_name = "gnps",
+                                  query = NULL,
+                                  limit = NULL,
+                                  id_field = "spectrum_id") {
 
-  con <- file(json_file, open = "rb")
-  on.exit(close(con))
+  if (!is.null(limit) && limit == 0) {
+    return(list())
+  }
 
-  buffer <- raw()
-  spectra_chunk <- list()
-  brace_count <- 0L
-  total_inserted <- 0L
-  sp_count <- 0L
+  # Include both peak formats and the requested identifier.
+  fields <- unique(c("peaks", "peaks_json", id_field))
+  projection <- setNames(rep(list(1L), length(fields)), fields)
 
-  repeat {
+  # Avoid a duplicate _id entry.
+  if (id_field != "_id") {
+    projection[["_id"]] <- 0L
+  }
 
-    raw_chunk <- readBin(con, what = "raw", n = raw_n)
-    if (length(raw_chunk) == 0 || total_inserted >= n_spectra)
-      break
+  find_args <- list(
+    query = if (is.null(query)) {
+      "{}"
+    } else if (is.character(query)) {
+      query
+    } else {
+      jsonlite::toJSON(query, auto_unbox = TRUE)
+    },
+    fields = jsonlite::toJSON(projection, auto_unbox = TRUE)
+  )
 
-    buffer <- c(buffer, raw_chunk)
-    txt <- gsub("\r\n|\n", "", rawToChar(buffer))
-    chars <- strsplit(txt, "")[[1]]
+  if (!is.null(limit)) {
+    find_args$limit <- as.integer(limit)
+  }
 
-    start_idx <- NULL
-    i <- 1
+  docs <- do.call(mongo_con$find, find_args)
 
-    while (i <= length(chars) && total_inserted < n_spectra) {
+  if (nrow(docs) == 0L) {
+    return(list())
+  }
 
-      if (chars[i] == "{") {
-        if (is.null(start_idx)) start_idx <- i
-        brace_count <- brace_count + 1
-      }
+  if (!id_field %in% names(docs)) {
+    stop("Identifier field not found: ", id_field)
+  }
 
-      if (chars[i] == "}") {
-        brace_count <- brace_count - 1
+  if (!any(c("peaks", "peaks_json") %in% names(docs))) {
+    stop("Neither 'peaks' nor 'peaks_json' was found.")
+  }
 
-        if (brace_count == 0 && !is.null(start_idx)) {
+  empty_peaks <- function() {
+    matrix(
+      numeric(),
+      ncol = 2L,
+      dimnames = list(NULL, c("mz", "intensity"))
+    )
+  }
 
-          obj_txt <- paste0(chars[start_idx:i], collapse = "")
-          obj_txt <- sub(",$", "", obj_txt)
-          sp <- jsonlite::fromJSON(obj_txt, simplifyVector = FALSE)
+  is_missing <- function(x) {
+    is.null(x) ||
+      length(x) == 0L ||
+      (is.atomic(x) && length(x) == 1L &&
+         (is.na(x) ||
+            (is.character(x) && trimws(x) %in% c("", "null"))))
+  }
 
-          if (is.null(sp$spectrum_id)) {
-            sp_count <- sp_count + 1L
-            sp$spectrum_id <- paste0("SP", sp_count)
-          }
-          spectra_chunk[[length(spectra_chunk) + 1]] <- sp
-          start_idx <- NULL
-
-          if (length(spectra_chunk) >= chunk_size ||
-              total_inserted + length(spectra_chunk) >= n_spectra) {
-
-            spectra_chunk <- spectra_chunk[
-              seq_len(min(length(spectra_chunk),
-                          n_spectra - total_inserted))
-            ]
-
-            #Here we add spectraData to ms_spectrum_coll
-            meta_docs <- vapply(spectra_chunk, function(sp) {
-              sp$peaks <- NULL
-              sp$peaks_json <- NULL
-              jsonlite::toJSON(lapply(sp, function(x) x %||% NA),
-                               auto_unbox = TRUE)
-            }, character(1))
-
-            dbcon$ms_spectrum_coll$insert(meta_docs)
-
-            #Here we add the peaks to ms_peaks_coll
-            peak_docs <- vapply(spectra_chunk, function(sp) {
-              sp$peaks <- .reformat_gnps_peaks(sp$peaks_json)
-              sp$peaks_json <- NULL
-              jsonlite::toJSON(lapply(sp, function(x) x %||% NA),
-                               auto_unbox = TRUE)
-            }, character(1))
-
-            dbcon$ms_peaks_coll$insert(peak_docs)
-
-            total_inserted <- total_inserted + length(spectra_chunk)
-            message("Inserted ", total_inserted, " spectra")
-
-            spectra_chunk <- list()
-          }
-        }
-      }
-      i <- i + 1
+  parse_peaks <- function(x) {
+    if (is_missing(x)) {
+      return(empty_peaks())
     }
 
-    buffer <- if (!is.null(start_idx))
-      charToRaw(paste(chars[start_idx:length(chars)], collapse = ""))
-    else raw()
+    # GNPS strings may contain parenthesized pairs:
+    # [(mz, intensity), ...] -> [[mz, intensity], ...]
+    if (is.character(x) && length(x) == 1L) {
+      x <- chartr("()", "[]", x)
+      x <- jsonlite::fromJSON(x)
+      return(parse_peaks(x))
+    }
+
+    # MSnLib peaks are already numeric matrices.
+    mat <- as.matrix(x)
+
+    if (ncol(mat) != 2L) {
+      stop("Expected two peak columns: mz and intensity.")
+    }
+
+    storage.mode(mat) <- "double"
+    colnames(mat) <- c("mz", "intensity")
+    mat
   }
 
-  message("Total spectra imported: ", total_inserted)
+  peaks_list <- lapply(seq_len(nrow(docs)), function(i) {
+    x <- if ("peaks" %in% names(docs)) {
+      docs$peaks[[i]]
+    } else {
+      NULL
+    }
+
+    if (is_missing(x) && "peaks_json" %in% names(docs)) {
+      x <- docs$peaks_json[[i]]
+    }
+
+    parse_peaks(x)
+  })
+
+  names(peaks_list) <- as.character(docs[[id_field]])
+  peaks_list
 }
+
+
+
 
 #' Convert Spectra, data.frame, or GNPS JSON library and insert into MongoDB
 #' backend
@@ -586,42 +613,45 @@ connectMsBackendMongoDb <- function(db = "spectra_db",
 #' @author Ahlam Mentag
 #'
 #' @noRd
-.createMsBackendMongoDb <- function(dbcon, x, n_spectra = NULL,
-                                    chunk_size = 10) {
-    if (!is.list(dbcon) || !all(sapply(dbcon, inherits, "mongo")))
-        stop("'dbcon' must be a list of mongo connection objects.")
-    if (is.null(x))
-        stop("Input x must be a Spectra object or a data.frame
+.createMsBackendMongoDb <- function(dbcon, x, n_spectra = NULL, chunk_size = 10) {
+
+  if (!is.list(dbcon) || !all(sapply(dbcon, inherits, "mongo")))
+    stop("'dbcon' must be a list of mongo connection objects.")
+  if (is.null(x))
+    stop("Input x must be a Spectra object or a data.frame
            or GNPS JSON library.")
 
-    ## JSON file input
-    if (is.character(x) && file.exists(x) && grepl("\\.json$", x,
-                                                   ignore.case = TRUE)) {
-        message("Detected GNPS JSON file, streaming into MongoDB...")
-        .add_gnps_json_to_mongo(dbcon, x, n_spectra = n_spectra,
-                                chunk_size = chunk_size)
-        return(invisible(TRUE))
-    }
+  # JSON file input
+  if (is.character(x) && file.exists(x) && grepl("\\.json$", x,
+                                                 ignore.case = TRUE)) {
+    message("Detected GNPS JSON file, streaming into MongoDB...")
+    .add_gnps_json_to_mongo(
+      dbcon, x,
+      n_spectra = n_spectra,
+      chunk_size = chunk_size
+    )
+    return(invisible(TRUE))
+  }
 
-    ## Convert Spectra to data.frame if needed
-    if (inherits(x, "Spectra"))
-        x <- spectraData(x, columns = union(spectraVariables(x),
-                                            peaksVariables(x)))
-    if (!(is.data.frame(x) | inherits(x, "DataFrame")))
-        stop("Input x must be a data.frame or Spectra object.")
-    x <- .reformat_mz_intensity(x)
+  ## Convert Spectra to data.frame if needed
+  if (inherits(x, "Spectra"))
+    x <- spectraData(x, columns = union(spectraVariables(x),
+                                        peaksVariables(x)))
+  if (!(is.data.frame(x) | inherits(x, "DataFrame")))
+    stop("Input x must be a data.frame or Spectra object.")
+  x <- .reformat_mz_intensity(x)
 
-    last_index <- 1
-    if (dbcon$ms_spectrum_coll$count('{}') > 0) {
-        existing_ids <- dbcon$ms_spectrum_coll$distinct("spectrum_id_")
-        last_index <- max(as.integer(sub("SP", "", existing_ids))) + 1L
-    }
-    x$spectrum_id_ <- sprintf(
-        paste0("SP", "%0", ceiling(log10(nrow(x) + last_index)), "d"),
-        seq(from = last_index, length.out = nrow(x)))
+  last_index <- 1
+  if (dbcon$ms_spectrum_coll$count('{}') > 0) {
+    existing_ids <- dbcon$ms_spectrum_coll$distinct("spectrum_id_")
+    last_index <- max(as.integer(sub("SP", "", existing_ids))) + 1L
+  }
+  x$spectrum_id_ <- sprintf(
+    paste0("SP", "%0", ceiling(log10(nrow(x) + last_index)), "d"),
+    seq(from = last_index, length.out = nrow(x)))
 
-    if (!is.data.frame(x)) x <- as.data.frame(x)
-    .insert_new_backend_mongo(dbcon, x)
+  if (!is.data.frame(x)) x <- as.data.frame(x)
+  .insert_new_backend_mongo(dbcon, x)
 }
 
 #' Small helper function to reformat eventually present "mz" and "intensity"
@@ -697,4 +727,57 @@ connectMsBackendMongoDb <- function(db = "spectra_db",
         .collections = dbcon,
         peak_fun = combined_peak_fun,
         spectraVariables = combined_vars)
+}
+
+#' @title Start and stop MongoDB instances
+#'
+#' @description
+#'
+#' The `start_mongodb()` and `stop_mongodb()` functions start and stop a
+#' MongoDB database using the *mongod* system call. These functions require
+#' an installation of the MongoDB server and the *mongod* binary to be present
+#' in the System path.
+#'
+#' @param cmd `character(1)` with the binary to start or stop the MongoDB.
+#'
+#' @param dbpath `character(1)` with the location of the MongoDB database.
+#'     Defaults to `file.path(tempdir(), "mongo")` hence using a temporary
+#'     folder for the data.
+#'
+#' @param logpath `character(1)` with the location of the log file for the
+#'     database. Defaults to `file.path(tempdir(), "mongo.log")`.
+#'
+#' @return `start_mongodb()` and `stop_mongodb()` don't return any value, but
+#'     throw an error if the `system2` call did not return `0`.
+#'
+#' @export
+#'
+#' @examples
+#'
+#' ## Start a MongoDB service with the database location in *test_mongo* in
+#' ## the System's temporary folder.
+#' start_mongodb(dbpath = file.path(tempdir(), "test_mongo"))
+#'
+#' ## Stop the MongoDB
+#' stop_mongodb(dbpath = file.path(tempdir(), "test_mongo"))
+#'
+#' ## Remove the database
+#' unlink(file.path(tempdir(), "test_mongo"), recursive = TRUE)
+start_mongodb <- function(cmd = "mongod",dbpath = file.path(tempdir(), "mongo"),
+                         logpath = file.path(tempdir(), "mongo.log")) {
+    if (!dir.exists(dbpath))
+        dir.create(dbpath, recursive = TRUE, showWarnings = FALSE)
+    res <- system2(cmd, c("--fork", "--dbpath", dbpath, "--logpath", logpath))
+    if (res != 0)
+        stop("Error starting MongoDB. Error code: ", res)
+}
+
+#' @rdname start_mongodb
+#'
+#' @export
+stop_mongodb <- function(cmd = "mongod",
+                         dbpath = file.path(tempdir(), "mongo")) {
+    res <- system2(cmd, c("--dbpath", dbpath, "--shutdown"))
+    if (res != 0)
+        stop("Error stopping MongoDB. Error code: ", res)
 }

@@ -8,7 +8,7 @@ vignette: >
     %\VignetteEngine{knitr::rmarkdown}
     %\VignetteEncoding{UTF-8}
     %\VignettePackage{MsBackendMongoDb}
-    %\VignetteDepends{MsBackendMongoDb,BiocStyle,msdata,mzR,mongolite}
+    %\VignetteDepends{MsBackendMongoDb,BiocStyle,MsDataHub,mzR,mongolite}
 ---
 
 ```{r style, echo = FALSE, results = 'asis', message=FALSE}
@@ -45,6 +45,18 @@ For using *MsBackendMongoDb*, access to a MongoDB, either running locally or
 remotely, is required. See the official [MongoDB](https://www.mongodb.com/) web
 page for information on installation and setup of a MongoDB database server.
 
+# Starting a MongoDB database for the vignette
+
+Assuming the MongoDB (server) is installed locally, we next start a MongoDB
+database specifically for this vignette with its data location in a temporary
+folder. For a production environment this will not be required as it is
+assumed that a MongoDB instance is already configured and running.
+
+```{r}
+library(MsBackendMongoDb)
+start_mongodb()
+```
+
 # Storing MS data in a MongoDB database
 
 In this section we store MS data from two mzML files into an empty MongoDB
@@ -53,8 +65,9 @@ two data files.
 
 ```{r}
 library(Spectra)
-library(msdata)
-fls <- dir(system.file("sciex", package = "msdata"), full.names = TRUE)
+library(MsDataHub)
+fls <- c(X20171016_POOL_POS_1_105.134.mzML(),
+         X20171016_POOL_POS_3_105.134.mzML())
 
 sp <- Spectra(fls)
 sp
@@ -157,4 +170,11 @@ all.equal(mz(sp), unname(mz(sp_mng)))
 
 ```{r}
 sessionInfo()
+```
+
+Shutdown MongoDB server and cleanup.
+
+```{r}
+stop_mongodb()
+unlink(file.path(tempdir(), "mongo"), recursive = TRUE)
 ```

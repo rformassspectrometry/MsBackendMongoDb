@@ -95,6 +95,7 @@ test_that("peaksData() returns list of matrices with correct columns", {
     clear_db(dbcon)
 })
 
+
 test_that("peaksVariables works", {
     dbcon <- test_dbcon()
     clear_db(dbcon)
@@ -550,3 +551,54 @@ test_that("backendInitialize with data provided works", {
 
     clear_db(dbcon)
 })
+
+
+if (FALSE) {
+methods::extends("MsBackendGnpsMongoDb", "MsBackendMongoDb")
+# Expected: TRUE
+source("C:/Users/ament/Desktop/Github/MsBackendMongoDb/R/MsBackendGnpsMongoDb.R")
+gnps <- mongolite::mongo(
+  collection = "gnps",
+  db = "BD",
+  url = "mongodb://localhost"
+)
+
+sps <- Spectra::Spectra(
+  gnps,
+  source = MsBackendGnpsMongoDb()
+)
+
+sps_small <- sps[c(3, 1, 3)]
+Spectra::spectraData(sps_small, columns = c("spectrum_id", "precursorMz"))
+Spectra::peaksData(sps_small)
+
+peaks <- Spectra::peaksData(sps_small)
+
+head(peaks[[1]])
+stopifnot(
+  nrow(peaks[[1]]) > 0L,
+  identical(colnames(peaks[[1]]), c("mz", "intensity")),
+  identical(peaks[[1]], peaks[[3]])
+)
+
+
+id <- Spectra::spectraData(sps_small, columns = "spectrum_id")$spectrum_id[1]
+
+raw <- gnps$find(
+  query = jsonlite::toJSON(list(spectrum_id = id), auto_unbox = TRUE),
+  fields = '{"peaks_json": 1, "_id": 0}',
+  limit = 2L
+)
+stopifnot(nrow(raw) == 1L)
+
+raw_peaks <- raw$peaks_json[[1]]
+valid_json <- chartr("()", "[]", raw_peaks)
+
+expected <- jsonlite::fromJSON(valid_json)
+stopifnot(is.matrix(expected), ncol(expected) == 2L)
+colnames(expected) <- c("mz", "intensity")
+
+comparison <- all.equal(expected, peaks[[1]], tolerance = 0)
+print(comparison)
+stopifnot(isTRUE(comparison))
+}
