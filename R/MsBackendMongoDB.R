@@ -190,6 +190,12 @@ setClass(
     )
 )
 
+#' @rdname MsBackendMongoDb
+#' @exportMethod length
+setMethod("length", "MsBackendMongoDb", function(x) {
+  length(x@spectraIds)
+})
+
 #' @importFrom methods .valueClassTest is new validObject
 #' @noRd
 setValidity("MsBackendMongoDb", function(object) {

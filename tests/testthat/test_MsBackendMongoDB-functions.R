@@ -404,200 +404,400 @@ teardown_test_db <- function(m) {
   m$drop()
 }
 
-test_that("gnps_fetch_spectra_data works as expected", {
-  m <- setup_test_db()
-  on.exit(teardown_test_db(m))
+# The metadata helper receives a backend, not a MongoDB connection.
+# Each test owns its fixture and drops only that temporary collection.
+with_gnps_metadata_backend <- function(check) {
+  connection <- setup_test_db()
+  on.exit(teardown_test_db(connection), add = TRUE)
 
-  # Test 1: Fetch all spectra
-  spectra <- gnps_fetch_spectra_data(m)
-  expect_is(spectra, "data.frame")
-  expect_equal(nrow(spectra), 2)
-  expect_true(all(c("SP1", "SP2") %in% spectra$spectrum_id))
-
-  # Test 2: Fetch with limit
-  spectra_limited <- gnps_fetch_spectra_data(m, limit = 1)
-  expect_equal(nrow(spectra_limited), 1)
-
-  # Test 3: Fetch specific fields
-  spectra_fields <- gnps_fetch_spectra_data(m, fields = c("spectrum_id", "precursor_mz"))
-  expect_true(all(c("spectrum_id", "precursor_mz") %in% colnames(spectra_fields)))
-  expect_false("msLevel" %in% colnames(spectra_fields))
-
-  # Test 4: Fetch with query
-  spectra_query <- gnps_fetch_spectra_data(m, query = list(msLevel = 2L))
-  expect_equal(nrow(spectra_query), 2)
-})
-
-test_that("gnps_fetch_peaks_data works correctly", {
-  m <- setup_test_db()
-  on.exit(teardown_test_db(m))
-
-  # Test 1: Fetch with limit = 0
-  no_peaks <- gnps_fetch_peaks_data(m, limit = 0, id_field = "spectrum_id")
-  expect_is(no_peaks, "list")
-  expect_equal(length(no_peaks), 0)
-
-  # Test 2: Fetch with NULL query and limit
-  all_peaks <- gnps_fetch_peaks_data(m, query = NULL, id_field = "spectrum_id")
-  expect_is(all_peaks, "list")
-  expect_equal(length(all_peaks), 2)  # On s'attend à 2 spectres, pas 3
-
-  # Test 3: Fetch with limit = 2 (more than 0)
-  limited_peaks <- gnps_fetch_peaks_data(m, limit = 2, id_field = "spectrum_id")
-  expect_is(limited_peaks, "list")
-  expect_equal(length(limited_peaks), 2)
-
-  # Test 4: Check the content of the limited peaks
-  expect_true(all(c("SP1", "SP2") %in% names(limited_peaks)))
-  expect_equal(limited_peaks[["SP1"]][1, "mz"], 123.4, check.attributes = FALSE)
-  expect_equal(limited_peaks[["SP1"]][1, "intensity"], 567, check.attributes = FALSE)
-
-  # Test 5: Check the content of the second spectrum
-  expect_equal(limited_peaks[["SP2"]][1, "mz"], 125.6, check.attributes = FALSE)
-  expect_equal(limited_peaks[["SP2"]][1, "intensity"], 789, check.attributes = FALSE)
-})
-
-if (FALSE) {
-
-# Manual checks using locally imported GNPS and MSnLib collections.
-library(mongolite)
-
-# GNPS reference library.
-# Import command for a JSON array:
-# mongoimport.exe --drop --host localhost --db BD --collection gnps --jsonArray --file "path\ALL_GNPS_cleaned.json"
-
-gnps <- mongo(
-  collection = "gnps",
-  db = "BD",
-  url = "mongodb://localhost"
-)
-
-# Retrieve selected metadata.
-gnps_metadata <- gnps_fetch_spectra_data(
-  gnps,
-  fields = c("spectrum_id", "Precursor_MZ"),
-  limit = 6
-)
-gnps_metadata
-
-# Retrieve peaks for five spectra.
-gnps_peaks <- gnps_fetch_peaks_data(
-  gnps,
-  limit = 5,
-  id_field = "spectrum_id"
-)
-names(gnps_peaks)
-
-if (length(gnps_peaks))
-  print(head(gnps_peaks[[1L]]))
-
-# Retrieve peaks for a known GNPS spectrum.
-specific_peaks <- gnps_fetch_peaks_data(
-  gnps,
-  query = list(spectrum_id = "CCMSLIB00000001547"),
-  id_field = "spectrum_id"
-)
-
-if (length(specific_peaks))
-  print(head(specific_peaks[[1L]]))
-
-# Access the collection through Spectra.
-sps_gnps <- Spectra::Spectra(
-  gnps,
-  source = MsBackendGnpsMongoDb(),
-  format = "gnps"
-)
-
-table(Spectra::msLevel(sps_gnps), useNA = "ifany")
-
-gnps_subset <- sps_gnps[1:6]
-stopifnot(length(gnps_subset) == 6L)
-
-Spectra::spectraData(
-  gnps_subset,
-  columns = c(
-    "spectrum_id", "msLevel", "precursorMz", "polarity", "inchikey"
+  sps <- Spectra::Spectra(
+    connection,
+    source = MsBackendGnpsMongoDb(),
+    format = "gnps"
   )
-)
 
-head(Spectra::peaksData(gnps_subset)[[1L]])
-
-
-# MSnLib reference library containing MS2–MS5 spectra.
-# Import command for a JSON array:
-# mongoimport.exe --drop --host localhost --db BD_MSnLib_test --collection gnps_MSnLib_test --jsonArray --file "path\20241003_enamdisc_neg_msn.json"
-
-msn <- mongo(
-  collection = "gnps_MSnLib_test",
-  db = "BD_MSnLib_test",
-  url = "mongodb://localhost"
-)
-
-# Retrieve peaks for five spectra using MongoDB ObjectIds.
-msn_peaks <- gnps_fetch_peaks_data(
-  msn,
-  limit = 5,
-  id_field = "_id"
-)
-names(msn_peaks)
-
-if (length(msn_peaks))
-  print(head(msn_peaks[[1L]]))
-
-# Access MSn spectra and fragmentation paths through Spectra.
-sps_msn <- Spectra::Spectra(
-  msn,
-  source = MsBackendGnpsMongoDb(),
-  format = "msnlib"
-)
-
-table(Spectra::msLevel(sps_msn), useNA = "ifany")
-
-msn_subset <- sps_msn[1:6]
-stopifnot(length(msn_subset) == 6L)
-
-path_columns <- c(
-  "msn_precursor_mzs",
-  "msn_collision_energies",
-  "msn_fragmentation_methods",
-  "msn_isolation_windows"
-)
-
-msn_metadata <- Spectra::spectraData(
-  msn_subset,
-  columns = c(
-    "spectrum_id", "feature_id", "msLevel",
-    "scan_number", "merge_type", path_columns
-  )
-)
-msn_metadata
-
-head(Spectra::peaksData(msn_subset)[[1L]])
-
-# Inspect one spectrum's complete fragmentation path.
-lapply(msn_metadata[, path_columns, drop = FALSE], function(x) x[[5L]])
-
-# Verify that subsetting preserves every path and repeated spectra.
-selection <- c(5L, 6L, 5L)
-
-repeated <- Spectra::spectraData(
-  msn_subset[selection],
-  columns = c("spectrum_id", path_columns)
-)
-
-stopifnot(
-  identical(
-    repeated$spectrum_id,
-    msn_metadata$spectrum_id[selection]
-  )
-)
-
-for (column in path_columns) {
-  stopifnot(
-    identical(
-      repeated[[column]],
-      msn_metadata[[column]][selection]
-    )
-  )
+  check(sps)
 }
+
+test_that(".gnps_mongo_metadata retrieves selected source fields", {
+  with_gnps_metadata_backend(function(sps) {
+    backend <- methods::slot(sps, "backend")
+
+    metadata <- .gnps_mongo_metadata(
+      backend,
+      fields = c("spectrum_id", "precursor_mz", "msLevel")
+    )
+
+    expect_true(is.data.frame(metadata))
+    expect_equal(nrow(metadata), 2L)
+    expect_setequal(metadata$spectrum_id, c("SP1", "SP2"))
+    expect_identical(
+      as.character(metadata[["_id"]]),
+      backend@spectraIds
+    )
+
+    index <- match(c("SP1", "SP2"), metadata$spectrum_id)
+    expect_equal(metadata$precursor_mz[index], c(500.12, 600.34))
+    expect_equal(metadata$msLevel[index], c(2L, 2L))
+    expect_false("peaks_json" %in% names(metadata))
+  })
+})
+
+test_that(".gnps_mongo_metadata projects only requested fields and _id", {
+  with_gnps_metadata_backend(function(sps) {
+    backend <- methods::slot(sps, "backend")
+
+    metadata <- .gnps_mongo_metadata(
+      backend,
+      fields = c("spectrum_id", "precursor_mz")
+    )
+
+    expect_identical(
+      names(metadata),
+      c("_id", "spectrum_id", "precursor_mz")
+    )
+    expect_false("msLevel" %in% names(metadata))
+    expect_false("peaks_json" %in% names(metadata))
+  })
+})
+
+test_that(".gnps_mongo_metadata preserves subset order and repeated spectra", {
+  with_gnps_metadata_backend(function(sps) {
+    fields <- c("spectrum_id", "precursor_mz")
+    original <- .gnps_mongo_metadata(
+      methods::slot(sps, "backend"),
+      fields = fields
+    )
+
+    selection <- c(2L, 1L, 2L)
+    backend <- methods::slot(sps[selection], "backend")
+    metadata <- .gnps_mongo_metadata(backend, fields = fields)
+
+    expect_equal(nrow(metadata), length(selection))
+    expect_identical(
+      as.character(metadata[["_id"]]),
+      as.character(original[["_id"]])[selection]
+    )
+    expect_identical(
+      metadata$spectrum_id,
+      original$spectrum_id[selection]
+    )
+    expect_equal(
+      metadata$precursor_mz,
+      original$precursor_mz[selection]
+    )
+
+    # A single-spectrum request is represented by backend subsetting.
+    one <- .gnps_mongo_metadata(
+      methods::slot(sps[1L], "backend"),
+      fields = fields
+    )
+    expect_equal(nrow(one), 1L)
+    expect_identical(one$spectrum_id, original$spectrum_id[1L])
+  })
+})
+
+test_that(".gnps_mongo_metadata handles an empty backend and missing fields", {
+  with_gnps_metadata_backend(function(sps) {
+    empty <- .gnps_mongo_metadata(
+      methods::slot(sps[integer()], "backend"),
+      fields = "spectrum_id"
+    )
+    expect_identical(empty, data.frame())
+
+    metadata <- .gnps_mongo_metadata(
+      methods::slot(sps, "backend"),
+      fields = c("spectrum_id", "absent_metadata_field")
+    )
+    expect_identical(
+      metadata$absent_metadata_field,
+      rep(NA_character_, length(sps))
+    )
+  })
+})
+
+testthat::test_that(".gnps_mongo_peaks retrieves and subsets peaks", {
+  m <- setup_test_db()
+  on.exit(teardown_test_db(m), add = TRUE)
+
+  backend <- ProtGenerics::backendInitialize(
+    MsBackendGnpsMongoDb(),
+    dbcon = m,
+    format = "gnps"
+  )
+
+  # Relier les identifiants SP1/SP2 aux identifiants MongoDB internes.
+  metadata <- .gnps_mongo_metadata(
+    backend,
+    fields = "spectrum_id"
+  )
+
+  index <- match(c("SP1", "SP2"), metadata$spectrum_id)
+  testthat::expect_false(anyNA(index))
+
+  ordered_backend <- ProtGenerics::extractByIndex(
+    backend, index
+  )
+
+  # Récupérer tous les pics dans l'ordre SP1, SP2.
+  peaks <- .gnps_mongo_peaks(ordered_backend)
+
+  testthat::expect_type(peaks, "list")
+  testthat::expect_length(peaks, 2L)
+  testthat::expect_identical(
+    names(peaks),
+    ordered_backend@spectraIds
+  )
+
+  testthat::expect_equal(
+    unname(peaks[[1L]]),
+    unname(cbind(
+      mz = c(123.4, 124.5),
+      intensity = c(567, 678)
+    ))
+  )
+
+  testthat::expect_equal(
+    unname(peaks[[2L]]),
+    unname(cbind(
+      mz = c(125.6, 126.7),
+      intensity = c(789, 890)
+    ))
+  )
+
+  testthat::expect_identical(
+    colnames(peaks[[1L]]),
+    c("mz", "intensity")
+  )
+
+  # Remplacement de limit = 0 : backend vide.
+  empty_backend <- ProtGenerics::extractByIndex(
+    ordered_backend, integer()
+  )
+
+  testthat::expect_identical(
+    .gnps_mongo_peaks(empty_backend),
+    list()
+  )
+
+  # Sélection d'un seul spectre.
+  one_backend <- ProtGenerics::extractByIndex(
+    ordered_backend, 1L
+  )
+
+  testthat::expect_equal(
+    .gnps_mongo_peaks(one_backend),
+    peaks[1L]
+  )
+
+  # Préserver l'ordre et les répétitions.
+  repeated_backend <- ProtGenerics::extractByIndex(
+    ordered_backend, c(2L, 1L, 2L)
+  )
+
+  repeated <- .gnps_mongo_peaks(repeated_backend)
+
+  testthat::expect_equal(
+    repeated,
+    peaks[c(2L, 1L, 2L)]
+  )
+
+  # Sélection des colonnes.
+  mz_only <- .gnps_mongo_peaks(
+    ordered_backend,
+    columns = "mz"
+  )
+
+  testthat::expect_identical(
+    colnames(mz_only[[1L]]),
+    "mz"
+  )
+
+  testthat::expect_equal(
+    mz_only[[1L]],
+    peaks[[1L]][, "mz", drop = FALSE]
+  )
+
+  testthat::expect_error(
+    .gnps_mongo_peaks(
+      ordered_backend,
+      columns = "invalid"
+    ),
+    "Peak columns must be"
+  )
+})
+
+
+  if (FALSE) {
+    # Manual checks using locally imported GNPS and MSnLib collections.
+    library(mongolite)
+
+    # GNPS reference library
+
+    # Import command for a JSON array:
+    # mongoimport.exe --drop --host localhost --db BD --collection gnps --jsonArray --file "path/ALL_GNPS_cleaned.json"
+
+    gnps <- mongolite::mongo(
+      collection = "gnps",
+      db = "BD",
+      url = "mongodb://localhost"
+    )
+
+    sps_gnps <- Spectra::Spectra(
+      gnps,
+      source = MsBackendGnpsMongoDb(),
+      format = "gnps"
+    )
+
+    # Retrieve metadata for up to six spectra.
+    gnps_subset <- sps_gnps[
+      seq_len(min(6L, length(sps_gnps)))
+    ]
+
+    gnps_metadata <- Spectra::spectraData(
+      gnps_subset,
+      columns = c(
+        "spectrum_id", "msLevel", "precursorMz",
+        "polarity", "inchikey"
+      )
+    )
+
+    print(gnps_metadata)
+
+    # Retrieve peaks for up to five spectra.
+    gnps_peaks <- Spectra::peaksData(
+      sps_gnps[seq_len(min(5L, length(sps_gnps)))]
+    )
+
+    print(names(gnps_peaks))
+
+    if (length(gnps_peaks))
+      print(head(gnps_peaks[[1L]]))
+
+    # Find a known spectrum using its GNPS identifier.
+    gnps_ids <- as.character(
+      Spectra::spectraData(
+        sps_gnps,
+        columns = "spectrum_id"
+      )$spectrum_id
+    )
+
+    index <- which(gnps_ids == "CCMSLIB00000001547")
+
+    if (length(index)) {
+      specific_peaks <- Spectra::peaksData(sps_gnps[index])
+      print(head(specific_peaks[[1L]]))
+    } else {
+      message("The requested GNPS spectrum is not in this collection.")
+    }
+
+    # Note: the current backend may assign MS2 to missing GNPS levels.
+    print(table(
+      Spectra::msLevel(sps_gnps),
+      useNA = "ifany"
+    ))
+
+    # MSnLib reference library
+
+    # Import command for a JSON array:
+    # mongoimport.exe --drop --host localhost --db BD_MSnLib_test --collection gnps_MSnLib_test --jsonArray --file "path/20241003_enamdisc_neg_msn.json"
+
+    msn <- mongolite::mongo(
+      collection = "gnps_MSnLib_test",
+      db = "BD_MSnLib_test",
+      url = "mongodb://localhost"
+    )
+
+    sps_msn <- Spectra::Spectra(
+      msn,
+      source = MsBackendGnpsMongoDb(),
+      format = "msnlib"
+    )
+
+    print(table(
+      Spectra::msLevel(sps_msn),
+      useNA = "ifany"
+    ))
+
+    # Retrieve peaks for up to five spectra.
+    msn_peaks <- Spectra::peaksData(
+      sps_msn[seq_len(min(5L, length(sps_msn)))]
+    )
+
+    print(names(msn_peaks))
+
+    if (length(msn_peaks))
+      print(head(msn_peaks[[1L]]))
+
+    # Retrieve metadata and paths for up to six spectra.
+    msn_subset <- sps_msn[
+      seq_len(min(6L, length(sps_msn)))
+    ]
+
+    path_columns <- c(
+      "msn_precursor_mzs",
+      "msn_collision_energies",
+      "msn_fragmentation_methods",
+      "msn_isolation_windows"
+    )
+
+    msn_metadata <- Spectra::spectraData(
+      msn_subset,
+      columns = c(
+        "spectrum_id", "feature_id", "msLevel",
+        "scan_number", "merge_type", path_columns
+      )
+    )
+
+    print(msn_metadata)
+
+    # Inspect the first available nonempty precursor path.
+    path_index <- which(
+      lengths(msn_metadata$msn_precursor_mzs) > 0L
+    )
+
+    if (length(path_index)) {
+      index <- path_index[1L]
+
+      print(lapply(
+        msn_metadata[, path_columns, drop = FALSE],
+        function(x) x[[index]]
+      ))
+    }
+
+    # Verify order, repeated spectra, and preserved paths.
+    if (length(msn_subset) >= 2L) {
+      selection <- c(2L, 1L, 2L)
+
+      repeated <- Spectra::spectraData(
+        msn_subset[selection],
+        columns = c("spectrum_id", path_columns)
+      )
+
+      stopifnot(
+        identical(
+          repeated$spectrum_id,
+          msn_metadata$spectrum_id[selection]
+        )
+      )
+
+      for (column in path_columns) {
+        stopifnot(
+          identical(
+            repeated[[column]],
+            msn_metadata[[column]][selection]
+          )
+        )
+      }
+
+      repeated_peaks <- as.list(
+        Spectra::peaksData(msn_subset[selection])
+      )
+
+      stopifnot(
+        length(repeated_peaks) == length(selection),
+        identical(repeated_peaks[[1L]], repeated_peaks[[3L]])
+      )
+    }
+
 }

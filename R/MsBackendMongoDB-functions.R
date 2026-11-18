@@ -428,111 +428,195 @@ connectMsBackendMongoDb <- function(db = "spectra_db",
     invisible(TRUE)
 }
 
-#' Fetch GNPS spectra metadata from MongoDB
-#'
-#' @param mongo_con A mongolite::mongo connection object.
-#' @param collection_name Name of the GNPS collection (default: "gnps").
-#' @param query Optional MongoDB query to filter spectra (default: NULL).
-#' @param limit Maximum number of spectra to return (default: NULL).
-#' @param fields Character vector of fields to return (default: all except peaks_json).
-#'
-#' @return A data.frame of spectra metadata.
-#'
-#' @author Ahlam Mentag
-#'
-gnps_fetch_spectra_data <- function(mongo_con, collection_name = "gnps",
-                                    query = NULL, limit = NULL,
-                                    fields = NULL) {
-  if (is.null(fields)) {
-    # Get ALL field names except peaks_json and _id
-    doc <- mongo_con$find('{}', limit = 1)
-    if (nrow(doc) > 0) {
-      fields <- setdiff(names(doc), c("peaks_json", "_id"))
-    } else {
-      return(data.frame())
-    }
+# Map backend variables to source fields.
+.gnps_mongo_fields <- function(format) {
+  if (format == "msnlib") {
+    return(c(
+      spectrum_id = "_id",
+      precursorMz = "precursor_mz",
+      polarity = "polarity",
+      msLevel = "ms_level",
+      compound_name = "compound_name",
+      smiles = "smiles",
+      inchikey = "inchikey",
+      feature_id = "feature_id",
+      merge_type = "merge_type",
+      adduct = "adduct",
+      collision_energy = "collision_energy",
+      scan_number = "scan_number",
+      msn_precursor_mzs = "msn_precursor_mzs",
+      msn_collision_energies = "msn_collision_energies",
+      msn_fragmentation_methods = "msn_fragmentation_methods",
+      msn_isolation_windows = "msn_isolation_windows"
+    ))
   }
 
-  # Build projection: include fields and exclude _id
-  projection <- paste0("{", paste(sprintf('"%s":1', fields), collapse = ","), ", \"_id\":0}")
-
-  # Convert limit to integer (mongolite requires numeric limit)
-  if (is.null(limit)) {
-    limit <- 0L  # 0 means no limit in mongolite
-  } else {
-    limit <- as.integer(limit)
-  }
-
-  # Fetch data
-  docs <- mongo_con$find(
-    query = if (!is.null(query)) toJSON(query, auto_unbox = TRUE) else '{}',
-    fields = projection,
-    limit = limit
+  c(
+    spectrum_id = "spectrum_id",
+    precursorMz = "Precursor_MZ",
+    polarity = "Ion_Mode",
+    msLevel = "ms_level",
+    compound_name = "Compound_Name",
+    smiles = "Smiles",
+    inchikey = "InChIKey_smiles",
+    adduct = "Adduct",
+    collision_energy = "collision_energy"
   )
-
-  # Convert to data.frame
-  as.data.frame(docs, stringsAsFactors = FALSE)
 }
 
-#' Fetch and reformat GNPS peaks data from MongoDB
+
+# Preserve the ObjectId type when querying MongoDB.
+.gnps_mongo_query <- function(ids) {
+  object_ids <- lapply(unique(ids), function(id) {
+    list("$oid" = id)
+  })
+
+  list("_id" = list("$in" = object_ids))
+}
+
+
+#' Retrieve source metadata for a GNPS or MSnLib backend
 #'
-#' @param mongo_con A mongolite::mongo connection object.
-#' @param collection_name Name of the GNPS collection (default: "gnps").
-#' @param query Optional MongoDB query to filter spectra (default: NULL).
-#' @param limit Maximum number of spectra to return (default: NULL).
-#' @param id_field Name of the field containing spectrum IDs (default: "spectrum_id").
+#' @description
+#' Retrieves selected MongoDB fields for the spectra referenced by an
+#' initialized `MsBackendGnpsMongoDb` object. Documents are fetched in
+#' batches of up to 1,000 unique identifiers, then reordered to match
+#' the backend, including repeated spectra.
 #'
-#' @return A named list of peaks matrices (each with columns `mz` and `intensity`).
+#' Missing scalar fields are filled with `NA_character_`. Selected
+#' scan-reference and fragmentation-path fields are preserved as list
+#' columns and normalized before batches are combined.
+#'
+#' @param object An initialized `MsBackendGnpsMongoDb` object connected
+#'   to a GNPS or MSnLib collection.
+#' @param fields Character vector of source MongoDB field names to retrieve.
+#'   The `_id` field is always included.
+#'
+#' @return A `data.frame` containing the requested source fields and `_id`,
+#'   with one row per backend spectrum in backend order. Returns an empty
+#'   `data.frame` when the backend contains no spectra.
 #'
 #' @author Ahlam Mentag
-#'
-gnps_fetch_peaks_data <- function(mongo_con,
-                                  collection_name = "gnps",
-                                  query = NULL,
-                                  limit = NULL,
-                                  id_field = "spectrum_id") {
+#' @keywords internal
+#' @noRd
+.gnps_mongo_metadata <- function(object, fields) {
+  ids <- object@spectraIds
 
-  if (!is.null(limit) && limit == 0) {
-    return(list())
-  }
+  if (!length(ids))
+    return(data.frame())
 
-  # Include both peak formats and the requested identifier.
-  fields <- unique(c("peaks", "peaks_json", id_field))
-  projection <- setNames(rep(list(1L), length(fields)), fields)
+  fields <- unique(c("_id", fields))
+  projection <- as.list(rep(1L, length(fields)))
+  names(projection) <- fields
 
-  # Avoid a duplicate _id entry.
-  if (id_field != "_id") {
-    projection[["_id"]] <- 0L
-  }
-
-  find_args <- list(
-    query = if (is.null(query)) {
-      "{}"
-    } else if (is.character(query)) {
-      query
-    } else {
-      jsonlite::toJSON(query, auto_unbox = TRUE)
-    },
-    fields = jsonlite::toJSON(projection, auto_unbox = TRUE)
+  unique_ids <- unique(ids)
+  batches <- split(
+    unique_ids,
+    ceiling(seq_along(unique_ids) / 1000L)
   )
 
-  if (!is.null(limit)) {
-    find_args$limit <- as.integer(limit)
+  # These fields can hold several values for one spectrum.
+  list_fields <- intersect(
+    fields,
+    c(
+      "scan_number",
+      "msn_precursor_mzs",
+      "msn_collision_energies",
+      "msn_fragmentation_methods",
+      "msn_isolation_windows"
+    )
+  )
+
+  documents <- lapply(batches, function(batch) {
+    document <- object@dbcon$find(
+      query = jsonlite::toJSON(
+        .gnps_mongo_query(batch),
+        auto_unbox = TRUE
+      ),
+      fields = jsonlite::toJSON(projection, auto_unbox = TRUE)
+    )
+
+    # Normalize list columns before combining batches. A path field can
+    # be absent from an entire batch containing only MS2 spectra.
+    for (field in fields) {
+      if (field %in% list_fields) {
+        value <- document[[field]]
+
+        if (is.null(value))
+          value <- rep(list(NULL), nrow(document))
+
+        document[[field]] <- I(as.list(value))
+
+      } else if (!field %in% names(document)) {
+        document[[field]] <- rep(NA_character_, nrow(document))
+      }
+    }
+
+    document[, fields, drop = FALSE]
+  })
+
+  documents <- do.call(rbind, documents)
+  index <- match(ids, as.character(documents[["_id"]]))
+
+  if (anyNA(index))
+    stop("Some spectra are missing from the MongoDB collection.")
+
+  documents[index, , drop = FALSE]
+}
+
+
+
+#' Retrieve and decode peaks for a GNPS or MSnLib backend
+#'
+#' @description
+#' Retrieves peak data for the spectra referenced by an initialized
+#' `MsBackendGnpsMongoDb` object. Documents are fetched in batches of up
+#' to 1,000 unique identifiers. The result preserves the backend's
+#' spectrum order and repeated spectra.
+#'
+#' @param object An initialized `MsBackendGnpsMongoDb` object connected
+#'   to a GNPS or MSnLib collection.
+#' @param columns Character vector selecting peak columns to return.
+#'   Supported values are `"mz"` and `"intensity"`. Defaults to both.
+#'   The requested column order is preserved.
+#'
+#' @return A named list of numeric matrices, one per backend spectrum.
+#'   List names are the MongoDB identifiers stored in the backend.
+#'   Each matrix contains the requested peak columns. Missing or empty
+#'   peak values produce zero-row matrices. An empty backend produces
+#'   an empty list.
+#'
+#' @details
+#' Peak data are read from `peaks`, falling back to `peaks_json` when
+#' `peaks` is absent or contains a missing or empty value.
+#'
+#' Supported representations include numeric two-column matrices,
+#' a single numeric m/z–intensity pair, and JSON strings containing
+#' arrays of pairs. Strings containing parenthesized pairs are converted
+#' to JSON array notation before decoding.
+#'
+#' Decoded columns are interpreted as m/z followed by intensity.
+#' This helper does not sort, normalize, or filter peaks.
+#'
+#' An error is raised for unsupported columns, decoding failures,
+#' documents containing neither peak field, or requested spectra that
+#' cannot be retrieved.
+#'
+#' @author Ahlam Mentag
+#' @keywords internal
+#' @noRd
+.gnps_mongo_peaks <- function(
+    object, columns = c("mz", "intensity")) {
+
+  if (!is.character(columns) || anyNA(columns) ||
+      any(!columns %in% c("mz", "intensity"))) {
+    stop("Peak columns must be 'mz' and/or 'intensity'.")
   }
 
-  docs <- do.call(mongo_con$find, find_args)
+  ids <- object@spectraIds
 
-  if (nrow(docs) == 0L) {
+  if (!length(ids))
     return(list())
-  }
-
-  if (!id_field %in% names(docs)) {
-    stop("Identifier field not found: ", id_field)
-  }
-
-  if (!any(c("peaks", "peaks_json") %in% names(docs))) {
-    stop("Neither 'peaks' nor 'peaks_json' was found.")
-  }
 
   empty_peaks <- function() {
     matrix(
@@ -545,55 +629,120 @@ gnps_fetch_peaks_data <- function(mongo_con,
   is_missing <- function(x) {
     is.null(x) ||
       length(x) == 0L ||
-      (is.atomic(x) && length(x) == 1L &&
-         (is.na(x) ||
-            (is.character(x) && trimws(x) %in% c("", "null"))))
+      (
+        is.atomic(x) &&
+          length(x) == 1L &&
+          (
+            is.na(x) ||
+              (
+                is.character(x) &&
+                  tolower(trimws(x)) %in% c("", "null", "nan")
+              )
+          )
+      )
   }
 
   parse_peaks <- function(x) {
-    if (is_missing(x)) {
+    if (is_missing(x))
       return(empty_peaks())
-    }
 
-    # GNPS strings may contain parenthesized pairs:
-    # [(mz, intensity), ...] -> [[mz, intensity], ...]
+    # Decode JSON arrays or strings containing parenthesized pairs.
     if (is.character(x) && length(x) == 1L) {
-      x <- chartr("()", "[]", x)
-      x <- jsonlite::fromJSON(x)
-      return(parse_peaks(x))
+      decoded <- jsonlite::fromJSON(chartr("()", "[]", x))
+
+      # Prevent recursion on a JSON string containing another string.
+      if (is.character(decoded))
+        stop("Expected a numeric peak array, not a JSON string.")
+
+      return(parse_peaks(decoded))
     }
 
-    # MSnLib peaks are already numeric matrices.
+    # Handle a single numeric pair.
+    if (is.numeric(x) && is.null(dim(x)) && length(x) == 2L)
+      x <- matrix(x, nrow = 1L)
+
     mat <- as.matrix(x)
 
-    if (ncol(mat) != 2L) {
+    if (ncol(mat) != 2L)
       stop("Expected two peak columns: mz and intensity.")
-    }
 
     storage.mode(mat) <- "double"
     colnames(mat) <- c("mz", "intensity")
+
     mat
   }
 
-  peaks_list <- lapply(seq_len(nrow(docs)), function(i) {
-    x <- if ("peaks" %in% names(docs)) {
-      docs$peaks[[i]]
-    } else {
-      NULL
+  # Fetch each document once, even when the backend repeats spectra.
+  unique_ids <- unique(ids)
+
+  batches <- split(
+    unique_ids,
+    ceiling(seq_along(unique_ids) / 1000L)
+  )
+
+  peak_batches <- lapply(batches, function(batch) {
+
+    docs <- object@dbcon$find(
+      query = jsonlite::toJSON(
+        .gnps_mongo_query(batch),
+        auto_unbox = TRUE
+      ),
+      fields = '{"_id":1,"peaks":1,"peaks_json":1}'
+    )
+
+    if (!nrow(docs))
+      return(list())
+
+    if (!"_id" %in% names(docs))
+      stop("MongoDB documents are missing '_id'.")
+
+    if (!any(c("peaks", "peaks_json") %in% names(docs))) {
+      stop("Neither 'peaks' nor 'peaks_json' was found.")
     }
 
-    if (is_missing(x) && "peaks_json" %in% names(docs)) {
-      x <- docs$peaks_json[[i]]
-    }
+    result <- lapply(seq_len(nrow(docs)), function(i) {
 
-    parse_peaks(x)
+      value <- if ("peaks" %in% names(docs)) {
+        docs$peaks[[i]]
+      } else {
+        NULL
+      }
+
+      # Fall back to peaks_json when peaks is absent or empty.
+      if (is_missing(value) && "peaks_json" %in% names(docs))
+        value <- docs$peaks_json[[i]]
+
+      tryCatch(
+        parse_peaks(value),
+        error = function(e) {
+          stop(
+            "Could not decode peaks for spectrum ",
+            as.character(docs[["_id"]][[i]]),
+            ": ", conditionMessage(e),
+            call. = FALSE
+          )
+        }
+      )
+    })
+
+    names(result) <- as.character(docs[["_id"]])
+    result
   })
 
-  names(peaks_list) <- as.character(docs[[id_field]])
-  peaks_list
+  peaks <- do.call(c, unname(peak_batches))
+
+  index <- match(ids, names(peaks))
+
+  if (anyNA(index))
+    stop("Could not retrieve peaks for every requested spectrum.")
+
+  result <- lapply(peaks[index], function(peak) {
+    peak[, columns, drop = FALSE]
+  })
+
+  names(result) <- ids
+  result
 }
-
-
 
 
 #' Convert Spectra, data.frame, or GNPS JSON library and insert into MongoDB
