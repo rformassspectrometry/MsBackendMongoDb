@@ -56,8 +56,19 @@ setMethod(
     if (!inherits(dbcon, "mongo"))
       stop("'dbcon' must be a mongolite connection.")
     
+    # Retrieve document identifiers.
     documents <- dbcon$find(fields = '{"_id": 1}')
     ids <- as.character(documents[["_id"]])
+    
+    first_document <- dbcon$find(
+      fields = '{"peaks":0,"peaks_json":0}',
+      limit = 1L
+    )
+    
+    metadata_fields <- setdiff(
+      names(first_document),
+      "_id"
+    )
     
     if (length(ids) != dbcon$count() ||
         anyNA(ids) ||
@@ -82,10 +93,12 @@ setMethod(
     object <- initialize_cache(
       object,
       nspectra = length(ids),
-      spectraVariables = c(
-        names(.gnps_mongo_fields(format)),
-        "mz", "intensity"
-      )
+      spectraVariables = unique(c(
+        metadata_fields,
+        "spectrum_id",
+        "mz",
+        "intensity"
+      ))
     )
     
     validObject(object)
@@ -136,6 +149,23 @@ setMethod(
       isolationWindowLowerMz = "numeric",
       isolationWindowTargetMz = "numeric",
       isolationWindowUpperMz = "numeric"
+    )
+    
+    # Newly discovered source fields use their original names
+    # Existing mappings retain precedence for normalized variables
+    source_fields <- setdiff(
+      spectraVariables(object),
+      c(
+        names(standard_types),
+        names(mapping),
+        "mz",
+        "intensity"
+      )
+    )
+    
+    mapping <- c(
+      mapping,
+      stats::setNames(source_fields, source_fields)
     )
     
     supported <- union(
@@ -241,6 +271,9 @@ setMethod(
           
         } else if (column == "spectrum_id") {
           value <- as.character(value)
+          
+        } else if (is.list(value)) {
+          value <- S4Vectors::List(value)
         }
         
         result[[column]] <- value
