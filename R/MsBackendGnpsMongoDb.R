@@ -48,35 +48,35 @@ MsBackendGnpsMongoDb <- function() {
 
 #' @rdname MsBackendGnpsMongoDb
 #' @exportMethod backendInitialize
+#'
+#' @importFrom MetaboCoreUtils translate
 setMethod(
   "backendInitialize", "MsBackendGnpsMongoDb",
   function(object, dbcon, format = c("gnps", "msnlib"), ...) {
     format <- match.arg(format)
-    
+
     if (!inherits(dbcon, "mongo"))
       stop("'dbcon' must be a mongolite connection.")
-    
+
     # Retrieve document identifiers.
     documents <- dbcon$find(fields = '{"_id": 1}')
     ids <- as.character(documents[["_id"]])
-    
+
     first_document <- dbcon$find(
       fields = '{"peaks":0,"peaks_json":0}',
       limit = 1L
     )
-    
-    metadata_fields <- setdiff(
-      names(first_document),
-      "_id"
-    )
-    
+
+    metadata_fields <- translate(setdiff(names(first_document), "_id"),
+                                 .revmap(.SPECTRA_2_GNPS), warning = FALSE)
+
     if (length(ids) != dbcon$count() ||
         anyNA(ids) ||
         any(!grepl("^[[:xdigit:]]{24}$", ids)) ||
         anyDuplicated(ids)) {
       stop("Documents must have unique MongoDB ObjectIds.")
     }
-    
+
     object@sourceFormat <- format
     object@dbcon <- dbcon
     object@.collections <- list(reference = dbcon)
@@ -85,11 +85,11 @@ setMethod(
     object@nspectra <- as.integer(length(ids))
     object@localData <- data.frame()
     object@peak_fun <- .gnps_mongo_peaks
-    
+
     initialize_cache <- methods::selectMethod(
       "backendInitialize", "MsBackendCached"
     )
-    
+
     object <- initialize_cache(
       object,
       nspectra = length(ids),
@@ -100,7 +100,7 @@ setMethod(
         "intensity"
       ))
     )
-    
+
     validObject(object)
     object
   }
@@ -110,7 +110,7 @@ setMethod(
 #' @rdname MsBackendGnpsMongoDb
 #' @exportMethod peaksVariables
 setMethod("peaksVariables", "MsBackendGnpsMongoDb", function(object) {
-  c("mz", "intensity")
+    c("mz", "intensity")
 })
 
 
@@ -123,179 +123,132 @@ setMethod(
   }
 )
 
+#' Named `character` with names being spectra variable names and values the
+#' corresponding fields in GNPS.
+#'
+#' This vector should be used to rename GNPS fields to the corresponding
+#' spectraVariables
+#'
+#' @noRd
+.SPECTRA_2_GNPS <- c(
+    adduct = "Adduct",
+    charge = "Charge",
+    compound_name = "Compound_Name",
+    compound_source = "Compound_Source",
+    exactmass = "ExactMass",
+    inchi = "INCHI",
+    precursorMz = "Precursor_MZ",
+    smiles = "Smiles",
+    polarity = "Ion_Mode",
+    msLevel = "ms_level"
+)
+
+.SPECTRA_2_MSNLIB <- c(
+    spectrum_id = "_id",
+    precursorMz = "precursor_mz",
+    msLevel = "ms_level"
+)
+
+#' Named `character` with data types of spectra variables. Only non-character
+#' spectra variables need to be defined/converted.
+#'
+#' This vector should be used in the `spectraData()` function to ensure spectra
+#' variables (extracted as `character` from GNPS/MongoDB) are converted into
+#' the correct data type.
+#'
+#' @noRd
+.SPECTRA_DATATYPES <- c(
+    precursorMz = "double",
+    exactmass = "double",
+    charge = "integer",
+    msLevel = "integer"
+)
 
 #' @rdname MsBackendGnpsMongoDb
+#'
 #' @exportMethod spectraData
+#'
+#' @importFrom IRanges CharacterList NumericList
+#'
+#' @importFrom S4Vectors List make_zero_col_DFrame
 setMethod(
   "spectraData", "MsBackendGnpsMongoDb",
   function(object, columns = spectraVariables(object)) {
     mapping <- .gnps_mongo_fields(object@sourceFormat)
-    
-    standard_types <- c(
-      msLevel = "integer",
-      rtime = "numeric",
-      acquisitionNum = "integer",
-      scanIndex = "integer",
-      dataStorage = "character",
-      dataOrigin = "character",
-      centroided = "logical",
-      smoothed = "logical",
-      polarity = "integer",
-      precScanNum = "integer",
-      precursorMz = "numeric",
-      precursorIntensity = "numeric",
-      precursorCharge = "integer",
-      collisionEnergy = "numeric",
-      isolationWindowLowerMz = "numeric",
-      isolationWindowTargetMz = "numeric",
-      isolationWindowUpperMz = "numeric"
-    )
-    
-    # Newly discovered source fields use their original names
-    # Existing mappings retain precedence for normalized variables
-    source_fields <- setdiff(
-      spectraVariables(object),
-      c(
-        names(standard_types),
-        names(mapping),
-        "mz",
-        "intensity"
-      )
-    )
-    
-    mapping <- c(
-      mapping,
-      stats::setNames(source_fields, source_fields)
-    )
-    
-    supported <- union(
-      names(standard_types),
-      c(names(mapping), "mz", "intensity")
-    )
-    
-    unknown <- setdiff(columns, supported)
-    
-    if (length(unknown)) {
-      stop(
-        "Unsupported spectrum variables: ",
-        paste(unknown, collapse = ", ")
-      )
-    }
-    
-    n <- length(object@spectraIds)
-    result <- S4Vectors::DataFrame(row.names = seq_len(n))
-    
-    # Initialize standard variables without source mappings.
-    standard_columns <- setdiff(
-      intersect(columns, names(standard_types)),
-      c(names(mapping), "mz", "intensity", "dataStorage")
-    )
-    
-    for (column in standard_columns) {
-      result[[column]] <- switch(
-        standard_types[[column]],
-        integer = rep(NA_integer_, n),
-        numeric = rep(NA_real_, n),
-        logical = rep(NA, n),
-        character = rep(NA_character_, n)
-      )
-    }
-    
-    if ("dataStorage" %in% columns)
-      result$dataStorage <- dataStorage(object)
-    
+    ## 1) cached variables: get them from the backend
+    res <- getMethod("spectraData", "MsBackendCached")(object,columns = columns)
+    if (is.null(res))
+        res <- make_zero_col_DFrame(length(object))
+    ## 2) database variables:
+    ##    - need to rename from spectra variable to gnps fields to fetch them
+    ##    - rename them back to spectra variables
+    ##    - fix data types for non-character spectra variables.
+    db_cols <- intersect(columns, object@spectraVariables)
+    meta_cols <- translate(db_cols, mapping, warning = FALSE)
     numeric_paths <- c(
       "msn_precursor_mzs",
       "msn_collision_energies",
       "msn_isolation_windows"
     )
-    
-    metadata_columns <- intersect(columns, names(mapping))
-    
-    if (length(metadata_columns)) {
+    if (length(db_cols)) {
+      peak_cols <- intersect(c("mz", "intensity"), db_cols)
+      db_cols <- setdiff(db_cols, peak_cols)
       metadata <- .gnps_mongo_metadata(
-        object,
-        fields = unname(mapping[metadata_columns])
-      )
-      
-      for (column in metadata_columns) {
-        source <- mapping[[column]]
-        value <- metadata[[source]]
-        
-        if (is.null(value))
-          value <- rep(NA_character_, n)
-        
-        if (column %in% numeric_paths) {
-          value <- IRanges::NumericList(
-            lapply(as.list(value), function(path) {
+          object, fields = translate(db_cols, mapping, warning = FALSE))
+      colnames(metadata) <- translate(colnames(metadata), .revmap(mapping),
+                                      warning = FALSE)
+      for (column in colnames(metadata)) {
+        if (column %in% names(.SPECTRA_DATATYPES)) {
+          value <- as(metadata[[column]], .SPECTRA_DATATYPES[column])
+          if (column == "msLevel" && object@sourceFormat == "gnps")
+              value[is.na(value)] <- 2L
+        } else if (column %in% numeric_paths) {
+          value <- NumericList(
+            lapply(as.list(metadata[[column]]), function(path) {
               path <- as.numeric(unlist(path, use.names = FALSE))
-              
               if (!length(path) || all(is.na(path)))
                 return(numeric())
-              
               path
-            })
-          )
-          
+            }), compress = FALSE)
         } else if (column == "msn_fragmentation_methods") {
-          value <- IRanges::CharacterList(
-            lapply(as.list(value), function(path) {
+          value <- CharacterList(
+            lapply(as.list(metadata[[column]]), function(path) {
               path <- as.character(unlist(path, use.names = FALSE))
-              
               if (!length(path) || all(is.na(path)))
                 return(character())
-              
               path
             })
           )
-          
         } else if (column == "scan_number") {
-          # Preserve multiple scan references for merged spectra.
-          value <- S4Vectors::List(as.list(value))
-          
-        } else if (column == "precursorMz") {
-          value <- suppressWarnings(as.numeric(as.character(value)))
-          
+          ## Preserve multiple scan references for merged spectra.
+          value <- List(as.list(value))
         } else if (column == "msLevel") {
-          value <- suppressWarnings(as.integer(as.character(value)))
-          
-          # Assumption for this GNPS reference library.
+          ## Assumption for this GNPS reference library.
           if (object@sourceFormat == "gnps")
             value[is.na(value)] <- 2L
-          
         } else if (column == "polarity") {
-          mode <- tolower(trimws(as.character(value)))
-          value <- rep(NA_integer_, n)
+          mode <- tolower(trimws(as.character(metadata[[column]])))
+          value <- rep(NA_integer_, length(object))
           value[mode %in% c("-", "negative", "neg")] <- 0L
           value[mode %in% c("+", "positive", "pos")] <- 1L
-          
-        } else if (column == "spectrum_id") {
-          value <- as.character(value)
-          
-        } else if (is.list(value)) {
-          value <- S4Vectors::List(value)
+        } else value <- metadata[[column]]
+        if (is.list(value)) {
+          value <- List(value)
         }
-        
-        result[[column]] <- value
+        res[[column]] <- value
+      }
+      ## Peaks
+      if (length(peak_cols)) {
+        peaks <- .gnps_mongo_peaks(object, columns = peak_cols)
+        for (column in peak_cols) {
+          res[[column]] <- NumericList(
+            lapply(peaks, function(peak) peak[, column])
+          , compress = FALSE)
+        }
       }
     }
-    
-    peak_columns <- intersect(columns, c("mz", "intensity"))
-    
-    if (length(peak_columns)) {
-      peaks <- .gnps_mongo_peaks(object, columns = peak_columns)
-      
-      for (column in peak_columns) {
-        result[[column]] <- IRanges::NumericList(
-          lapply(peaks, function(peak) peak[, column])
-        )
-      }
-    }
-    
-    result[, columns, drop = FALSE]
-  }
-)
-
+    res[, columns, drop = FALSE]
+  })
 
 #' @rdname MsBackendGnpsMongoDb
 #' @exportMethod extractByIndex

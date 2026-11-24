@@ -17,12 +17,14 @@
 \alias{spectraNames<-,MsBackendMongoDb-method}
 \alias{[,MsBackendMongoDb-method}
 \alias{extractByIndex,MsBackendMongoDb-method}
+\alias{length,MsBackendMongoDb-method}
 \alias{show,MsBackendMongoDb-method}
-\alias{[,MsBackendMongoDb,ANY,ANY,ANY-method}
 \alias{extractByIndex,MsBackendMongoDb,ANY-method}
 \alias{supportsSetBackend,MsBackendMongoDb-method}
 \title{\code{Spectra} MS backend storing data in a MongoDb database}
 \usage{
+\S4method{length}{MsBackendMongoDb}(x)
+
 \S4method{show}{MsBackendMongoDb}(object)
 
 \S4method{backendInitialize}{MsBackendMongoDb}(object, dbcon, data, ...)
@@ -47,7 +49,7 @@
 
 \S4method{spectraData}{MsBackendMongoDb}(object, columns = spectraVariables(object))
 
-\S4method{[}{MsBackendMongoDb,ANY,ANY,ANY}(x, i, j, ..., drop = FALSE)
+\S4method{[}{MsBackendMongoDb}(x, i, j, ..., drop = FALSE)
 
 \S4method{extractByIndex}{MsBackendMongoDb,ANY}(object, i)
 
@@ -56,6 +58,8 @@
 \S4method{supportsSetBackend}{MsBackendMongoDb}(object, ...)
 }
 \arguments{
+\item{x}{for \verb{[i]}: a \code{MsBackendMongoDb} instance}
+
 \item{object}{A \code{MsBackendMongoDb} instance}
 
 \item{dbcon}{\code{list()} of MongoDb collections, e.g.,
@@ -69,8 +73,6 @@
 \code{spectraData}}
 
 \item{value}{Replacement values for setter functions}
-
-\item{x}{for \verb{[i]}: a \code{MsBackendMongoDb} instance}
 
 \item{i}{\code{integer()} Indices to subset the backend}
 

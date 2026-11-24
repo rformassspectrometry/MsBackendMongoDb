@@ -3,9 +3,9 @@
 export(MsBackendGnpsMongoDb)
 export(MsBackendMongoDb)
 export(connectMsBackendMongoDb)
-exportClasses(MsBackendGnpsMongoDb)
 export(start_mongodb)
 export(stop_mongodb)
+exportClasses(MsBackendGnpsMongoDb)
 exportClasses(MsBackendMongoDb)
 exportMethods("[")
 exportMethods("intensity<-")
@@ -15,6 +15,7 @@ exportMethods(backendInitialize)
 exportMethods(dataStorage)
 exportMethods(extractByIndex)
 exportMethods(intensity)
+exportMethods(length)
 exportMethods(mz)
 exportMethods(peaksData)
 exportMethods(peaksVariables)
@@ -30,10 +31,15 @@ importFrom(DBI,
   dbGetInfo,
   dbGetQuery
 )
-importFrom(IRanges,NumericList)
+importFrom(IRanges,
+  CharacterList,
+  NumericList
+)
+importFrom(MetaboCoreUtils,translate)
 importFrom(MsCoreUtils,i2index)
 importFrom(S4Vectors,
   DataFrame,
+  List,
   extractROWS,
   make_zero_col_DFrame
 )
