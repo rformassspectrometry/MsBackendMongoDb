@@ -42,13 +42,17 @@ MsBackendGnpsMongoDb()
 }
 \description{
 \code{MsBackendGnpsMongoDb} extends \code{MsBackendMongoDb} to provide read-only
-access to reference spectra imported directly into a MongoDB collection.
-Each document contains the metadata and peaks for one spectrum.
+access to reference spectra imported into a single MongoDB collection.
 }
 \details{
 MongoDB ObjectIds identify documents internally. Metadata and peaks are
 retrieved on demand and returned in the requested spectrum order.
 
-The GNPS layout uses \code{Precursor_MZ}, \code{Ion_Mode}, and \code{peaks_json}.
-The MSnLib layout uses \code{precursor_mz}, \code{polarity}, and \code{peaks}.
+For MSnLib, precursor paths, collision-energy paths, fragmentation
+methods, isolation windows, and source scan numbers are preserved.
+Paths are returned as list columns with one vector per spectrum.
+Parent scan references are not inferred automatically.
+
+Missing GNPS MS levels are assumed to represent MS/MS spectra.
+This assumption is specific to the GNPS reference library used here.
 }

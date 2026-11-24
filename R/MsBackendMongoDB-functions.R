@@ -430,38 +430,9 @@ connectMsBackendMongoDb <- function(db = "spectra_db",
 
 # Map backend variables to source fields.
 .gnps_mongo_fields <- function(format) {
-  if (format == "msnlib") {
-    return(c(
-      spectrum_id = "_id",
-      precursorMz = "precursor_mz",
-      polarity = "polarity",
-      msLevel = "ms_level",
-      compound_name = "compound_name",
-      smiles = "smiles",
-      inchikey = "inchikey",
-      feature_id = "feature_id",
-      merge_type = "merge_type",
-      adduct = "adduct",
-      collision_energy = "collision_energy",
-      scan_number = "scan_number",
-      msn_precursor_mzs = "msn_precursor_mzs",
-      msn_collision_energies = "msn_collision_energies",
-      msn_fragmentation_methods = "msn_fragmentation_methods",
-      msn_isolation_windows = "msn_isolation_windows"
-    ))
-  }
-
-  c(
-    spectrum_id = "spectrum_id",
-    precursorMz = "Precursor_MZ",
-    polarity = "Ion_Mode",
-    msLevel = "ms_level",
-    compound_name = "Compound_Name",
-    smiles = "Smiles",
-    inchikey = "InChIKey_smiles",
-    adduct = "Adduct",
-    collision_energy = "collision_energy"
-  )
+    switch(format,
+           msnlib = .SPECTRA_2_MSNLIB,
+           gnps = .SPECTRA_2_GNPS)
 }
 
 
@@ -929,4 +900,13 @@ stop_mongodb <- function(cmd = "mongod",
     res <- system2(cmd, c("--dbpath", dbpath, "--shutdown"))
     if (res != 0)
         stop("Error stopping MongoDB. Error code: ", res)
+}
+
+#' Helper function to reverse the mapping of spectra variables to fields.
+#'
+#' @noRd
+.revmap <- function(x) {
+    y <- names(x)
+    names(y) <- x
+    y
 }

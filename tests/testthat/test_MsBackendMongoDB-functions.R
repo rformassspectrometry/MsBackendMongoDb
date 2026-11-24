@@ -801,3 +801,9 @@ testthat::test_that(".gnps_mongo_peaks retrieves and subsets peaks", {
     }
 
 }
+
+test_that(".revmap works", {
+    res <- .revmap(.SPECTRA_2_GNPS)
+    expect_equal(names(res), unname(.SPECTRA_2_GNPS))
+    expect_equal(unname(res), names(.SPECTRA_2_GNPS))
+})
